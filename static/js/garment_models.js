@@ -573,12 +573,12 @@ export class GarmentModelFactory {
                 }
 
                 if (bestSlice && minDist < 0.12) {
-                    const targetLeft3D = (bestSlice.left - 0.5) * visibleWidth; // Screen left (-X) -> Person's Right (R)
-                    const targetRight3D = (bestSlice.right - 0.5) * visibleWidth; // Screen right (+X) -> Person's Left (L)
+                    const targetLeft3D = (bestSlice.left - 0.5) * visibleWidth;
+                    const targetRight3D = (bestSlice.right - 0.5) * visibleWidth;
 
                     const fitFactor = (v < 0.82) ? 0.65 : 0.20;
-                    R.x = R.x * (1 - fitFactor) + targetLeft3D * fitFactor;
-                    L.x = L.x * (1 - fitFactor) + targetRight3D * fitFactor;
+                    L.x = L.x * (1 - fitFactor) + targetLeft3D * fitFactor;
+                    R.x = R.x * (1 - fitFactor) + targetRight3D * fitFactor;
                 }
             }
 
@@ -664,7 +664,7 @@ export class GarmentModelFactory {
         if (elbow && elbow.distanceTo(origin) > 0.04) {
             V_upper = elbow.clone().sub(origin);
         } else {
-            const fallbackX = isLeft ? sw * 0.22 : -sw * 0.22;
+            const fallbackX = isLeft ? -sw * 0.22 : sw * 0.22;
             V_upper = new THREE.Vector3(fallbackX, -sw * 0.85, 0);
         }
         const dirUpper = V_upper.clone().normalize();
@@ -683,19 +683,19 @@ export class GarmentModelFactory {
         const dirFore = V_fore.clone().normalize();
 
         // 2. Orthonormal basis (Phase-aligned non-twisting frame)
-        // u_out: points laterally outward from body (isLeft -> +X, !isLeft -> -X)
+        // u_out: points laterally outward from body
         // v_fwd: points forward towards camera (+Z)
         const getBasis = (dir) => {
-            const refTorso = C_solar || origin.clone().add(new THREE.Vector3(isLeft ? -0.3 * sw : 0.3 * sw, -0.2 * sw, 0));
+            const refTorso = C_solar || origin.clone().add(new THREE.Vector3(isLeft ? 0.3 * sw : -0.3 * sw, -0.2 * sw, 0));
             const T_out = origin.clone().sub(refTorso);
 
             // Project T_out perpendicular to dir
             let u = T_out.clone().sub(dir.clone().multiplyScalar(T_out.dot(dir))).normalize();
             if (u.lengthSq() < 0.1) {
-                u = new THREE.Vector3(isLeft ? 1 : -1, 0, 0);
+                u = new THREE.Vector3(isLeft ? -1 : 1, 0, 0);
             }
-            if (isLeft && u.x < 0) u.negate();
-            if (!isLeft && u.x > 0) u.negate();
+            if (isLeft && u.x > 0) u.negate();
+            if (!isLeft && u.x < 0) u.negate();
 
             // Forward depth vector (+Z towards camera)
             let v = u.clone().cross(dir).normalize();
@@ -703,8 +703,8 @@ export class GarmentModelFactory {
 
             // Re-orthogonalize u
             u = dir.clone().cross(v).normalize();
-            if (isLeft && u.x < 0) u.negate();
-            if (!isLeft && u.x > 0) u.negate();
+            if (isLeft && u.x > 0) u.negate();
+            if (!isLeft && u.x < 0) u.negate();
 
             return { u, v };
         };
@@ -879,7 +879,7 @@ export class GarmentModelFactory {
         }
 
         garmentGroup.traverse((child) => {
-            if (child.isMesh && child.material && child.name !== 'smpl_body_mesh' && child.name !== 'smpl_wireframe') {
+            if (child.isMesh && child.material) {
                 child.material.map = texture;
                 child.material.color.set(0xffffff);
                 child.material.needsUpdate = true;
