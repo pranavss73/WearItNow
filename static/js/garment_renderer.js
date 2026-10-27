@@ -14,7 +14,7 @@
  */
 
 import * as THREE from 'three';
-import { GarmentModelFactory } from './garment_models.js?v=7.0';
+import { GarmentModelFactory } from './garment_models.js?v=8.0';
 
 /**
  * Empirical Ground-Truth Presets (Calibrated by User)
@@ -276,7 +276,9 @@ export class GarmentRenderer {
             // 1. FULL LANDMARK-ANCHORED MESH WARPING (Industry-standard anatomical deformation)
             if (poseData.bodyCage && this.currentGarment.userData?.updateDeformation) {
                 // Apply dynamic anatomical cage deformation directly to garment vertices
-                this.currentGarment.userData.updateDeformation(poseData.bodyCage, this.camera);
+                this.currentGarment.userData.updateDeformation(poseData.bodyCage, this.camera, {
+                    silhouetteBounds: poseData.silhouetteBounds
+                });
 
                 // With landmark anchoring, vertices are already located at their exact 3D camera coordinates!
                 this.targetPos.set(0, 0, 0);

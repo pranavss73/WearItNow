@@ -13,6 +13,14 @@ export class BodyTracker {
         this.smoothingFactor = 0.75; // EMA alpha
         this.trackingActive = false;
         this.lastResult = null;
+
+        // Silhouette edge tracker (real-time body contour bounds)
+        this.segmenter = null;
+        this.segmenterReady = false;
+        this.segmenterCanvas = null;
+        this.segmenterCtx = null;
+        this.lastSegmenterTime = 0;
+        this.silhouetteBounds = null;
     }
 
     /**
@@ -74,6 +82,38 @@ export class BodyTracker {
 
         this.isReady = true;
         if (onProgress) onProgress(0.6, "Body tracking engine ready");
+
+        // Asynchronously initialize lightweight body edge segmenter without blocking main thread
+        this._initSegmenterAsync(FilesetResolverClass, wasmResolver);
+    }
+
+    /**
+     * Asynchronously loads lightweight selfie segmentation for silhouette edge tracking
+     */
+    async _initSegmenterAsync(FilesetResolverClass, wasmResolver) {
+        try {
+            let ImageSegmenterClass = window.ImageSegmenter || (window.tasksVision && window.tasksVision.ImageSegmenter);
+            if (!ImageSegmenterClass) {
+                const vision = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18");
+                ImageSegmenterClass = vision.ImageSegmenter;
+            }
+            if (ImageSegmenterClass) {
+                const segmenterModelUrl = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.task";
+                this.segmenter = await ImageSegmenterClass.createFromOptions(wasmResolver, {
+                    baseOptions: {
+                        modelAssetPath: segmenterModelUrl,
+                        delegate: "GPU",
+                    },
+                    runningMode: "IMAGE",
+                    outputCategoryMask: false,
+                    outputConfidenceMasks: true,
+                });
+                this.segmenterReady = true;
+                console.log("✓ Body edge silhouette segmenter ready");
+            }
+        } catch (e) {
+            console.warn("Selfie segmenter not active (using landmark cage bounds):", e);
+        }
     }
 
     /**
@@ -108,9 +148,94 @@ export class BodyTracker {
         this.smoothedLandmarks = this._smoothLandmarks(raw);
         this.trackingActive = true;
 
+        // Run silhouette edge segmentation at ~12 FPS in background to avoid dropping video FPS
+        this._processSegmentation(video, true);
+
         const metrics = this._computeMetrics(this.smoothedLandmarks, world, video.videoWidth || 640, video.videoHeight || 480, true);
         this.lastResult = metrics;
         return metrics;
+    }
+
+    /**
+     * Run lightweight silhouette edge segmentation on downscaled canvas (sub-2ms execution)
+     */
+    _processSegmentation(videoSource, isMirrored = true) {
+        if (!this.segmenterReady || !this.segmenter || !videoSource) return;
+        const now = performance.now();
+        if (now - this.lastSegmenterTime < 80) return; // run at ~12 FPS to preserve full 60 FPS on main thread
+        this.lastSegmenterTime = now;
+
+        try {
+            if (!this.segmenterCanvas) {
+                this.segmenterCanvas = document.createElement('canvas');
+                this.segmenterCanvas.width = 160;
+                this.segmenterCanvas.height = 90;
+                this.segmenterCtx = this.segmenterCanvas.getContext('2d', { willReadFrequently: true });
+            }
+            this.segmenterCtx.drawImage(videoSource, 0, 0, 160, 90);
+
+            this.segmenter.segment(this.segmenterCanvas, (result) => {
+                if (result && result.confidenceMasks && result.confidenceMasks.length > 0) {
+                    const mask = result.confidenceMasks[0];
+                    this.silhouetteBounds = this._extractSilhouetteBounds(mask, isMirrored);
+                }
+            });
+        } catch (e) {
+            // Non-critical, ignore
+        }
+    }
+
+    /**
+     * Extract horizontal silhouette slice bounds {y, left, right} for garment edge fitting
+     */
+    _extractSilhouetteBounds(confidenceMask, isMirrored = true) {
+        if (!confidenceMask) return null;
+        const w = confidenceMask.width;
+        const h = confidenceMask.height;
+        let data = null;
+        if (typeof confidenceMask.getAsFloat32Array === 'function') {
+            data = confidenceMask.getAsFloat32Array();
+        } else if (confidenceMask.data) {
+            data = confidenceMask.data;
+        }
+        if (!data || data.length === 0) return null;
+
+        const slices = [];
+        const numSlices = 14;
+        for (let s = 0; s < numSlices; s++) {
+            const normY = 0.20 + (s / (numSlices - 1)) * 0.70;
+            const rowY = Math.min(h - 1, Math.max(0, Math.floor(normY * h)));
+            const rowOffset = rowY * w;
+
+            let minX = -1;
+            let maxX = -1;
+
+            for (let colX = 0; colX < w; colX++) {
+                const conf = data[rowOffset + colX];
+                if (conf > 0.40) {
+                    if (minX === -1) minX = colX;
+                    maxX = colX;
+                }
+            }
+
+            if (minX !== -1 && maxX > minX) {
+                let leftNorm = minX / w;
+                let rightNorm = maxX / w;
+                if (isMirrored) {
+                    const temp = 1.0 - rightNorm;
+                    rightNorm = 1.0 - leftNorm;
+                    leftNorm = temp;
+                }
+                slices.push({
+                    y: normY,
+                    left: leftNorm,
+                    right: rightNorm,
+                    width: rightNorm - leftNorm
+                });
+            }
+        }
+
+        return slices.length >= 4 ? slices : null;
     }
 
     /**
@@ -124,6 +249,9 @@ export class BodyTracker {
         if (image instanceof HTMLImageElement && (!image.complete || image.naturalWidth === 0)) {
             return null;
         }
+
+        // Run silhouette edge segmentation on still image if available
+        this._processSegmentation(image, false);
 
         const width = image.naturalWidth || image.width || 640;
         const height = image.naturalHeight || image.height || 480;
@@ -254,23 +382,34 @@ export class BodyTracker {
 
         const shoulderWidth = Math.hypot(ls.x - rs.x, ls.y - rs.y);
 
-        // Anatomical neck base (suprasternal notch / collarbone level)
+        // Dynamically anchor neck base (suprasternal notch) towards chin/throat
+        let neckY = shoulderCenter.y - shoulderWidth * 0.12;
+        let neckX = shoulderCenter.x;
+        if (nose && (nose.visibility ?? 1.0) > 0.35) {
+            const headDy = shoulderCenter.y - nose.y;
+            if (headDy > 0.05 && headDy < shoulderWidth * 1.6) {
+                // Sits around 32% of distance from shoulders towards nose (base of throat)
+                neckY = shoulderCenter.y - headDy * 0.35;
+                neckX = shoulderCenter.x * 0.70 + nose.x * 0.30;
+            }
+        }
+
         const neck = {
-            x: shoulderCenter.x,
-            y: shoulderCenter.y - shoulderWidth * 0.04,
+            x: neckX,
+            y: neckY,
             z: shoulderCenter.z
         };
 
         // Inner clavicles
         const clavicleLeft = {
-            x: ls.x * 0.65 + neck.x * 0.35,
-            y: ls.y * 0.65 + neck.y * 0.35,
-            z: ls.z * 0.65 + neck.z * 0.35
+            x: ls.x * 0.55 + neck.x * 0.45,
+            y: ls.y * 0.55 + neck.y * 0.45,
+            z: ls.z * 0.55 + neck.z * 0.45
         };
         const clavicleRight = {
-            x: rs.x * 0.65 + neck.x * 0.35,
-            y: rs.y * 0.65 + neck.y * 0.35,
-            z: rs.z * 0.65 + neck.z * 0.35
+            x: rs.x * 0.55 + neck.x * 0.45,
+            y: rs.y * 0.55 + neck.y * 0.45,
+            z: rs.z * 0.55 + neck.z * 0.45
         };
 
         // Hips: detect or extrapolate
@@ -325,16 +464,20 @@ export class BodyTracker {
             z: shoulderCenter.z * 0.20 + hipCenter.z * 0.80
         };
 
-        // Armpits
+        // Dynamic arm elevation detection (positive when elbow raises towards/above shoulder level)
+        const leftArmLift = Math.max(0, ls.y - le.y + shoulderWidth * 0.08);
+        const rightArmLift = Math.max(0, rs.y - re.y + shoulderWidth * 0.08);
+
+        // Dynamic armpits that elevate with arm lift
         const leftArmpit = {
-            x: ls.x * 0.85 + hipLeft.x * 0.15,
-            y: ls.y * 0.85 + hipLeft.y * 0.15,
-            z: ls.z * 0.85 + hipLeft.z * 0.15
+            x: ls.x * 0.82 + hipLeft.x * 0.18,
+            y: (ls.y * 0.82 + hipLeft.y * 0.18) - leftArmLift * 0.35,
+            z: ls.z * 0.82 + hipLeft.z * 0.18
         };
         const rightArmpit = {
-            x: rs.x * 0.85 + hipRight.x * 0.15,
-            y: rs.y * 0.85 + hipRight.y * 0.15,
-            z: rs.z * 0.85 + hipRight.z * 0.15
+            x: rs.x * 0.82 + hipRight.x * 0.18,
+            y: (rs.y * 0.82 + hipRight.y * 0.18) - rightArmLift * 0.35,
+            z: rs.z * 0.82 + hipRight.z * 0.18
         };
 
         // Ribs
@@ -383,6 +526,8 @@ export class BodyTracker {
             rightElbow: re,
             leftWrist: lw,
             rightWrist: rw,
+            leftArmLift,
+            rightArmLift,
             shoulderWidth,
             shoulderCenter,
             torsoHeight: Math.hypot(hipCenter.x - shoulderCenter.x, hipCenter.y - shoulderCenter.y)
@@ -452,6 +597,7 @@ export class BodyTracker {
             worldLandmarks: world,
             isMirrored: Boolean(isMirrored),
             bodyCage,
+            silhouetteBounds: this.silhouetteBounds,
             shoulders: { left: ls, right: rs, center: shoulderCenter, width: shoulderWidthNorm, widthPx: shoulderWidthPx },
             hips: { left: lh, right: rh, center: hipCenter },
             torso: { center: torsoCenter, height: torsoHeightNorm, heightPx: torsoHeightPx },

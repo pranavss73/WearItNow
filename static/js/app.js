@@ -3,9 +3,9 @@
  * Coordinates camera, body tracker, 3D garment renderer, and API processing.
  */
 
-import { api } from './api.js?v=7.0';
-import { BodyTracker } from './tracker.js?v=7.0';
-import { GarmentRenderer } from './garment_renderer.js?v=7.0';
+import { api } from './api.js?v=8.0';
+import { BodyTracker } from './tracker.js?v=8.0';
+import { GarmentRenderer } from './garment_renderer.js?v=8.0';
 
 class WearItNowApp {
     constructor() {

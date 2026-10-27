@@ -30,8 +30,8 @@ export class GarmentModelFactory {
         switch (type) {
             case 'hoodie':
                 return this._createDeformableGarment('hoodie', texture, {
-                    neckDrop: 0.08,
-                    neckWidth: 0.28,
+                    neckDrop: 0.04,
+                    neckWidth: 0.22,
                     depthMultiplier: 1.15,
                     sleeveLengthFraction: 0.96,
                     sleeveRadiusScale: 1.12,
@@ -39,8 +39,8 @@ export class GarmentModelFactory {
                 });
             case 'formal_shirt':
                 return this._createDeformableGarment('formal_shirt', texture, {
-                    neckDrop: 0.07,
-                    neckWidth: 0.24,
+                    neckDrop: 0.035,
+                    neckWidth: 0.20,
                     depthMultiplier: 0.95,
                     sleeveLengthFraction: 0.94,
                     sleeveRadiusScale: 0.98,
@@ -48,7 +48,7 @@ export class GarmentModelFactory {
                 });
             case 'jacket':
                 return this._createDeformableGarment('jacket', texture, {
-                    neckDrop: 0.18,
+                    neckDrop: 0.10,
                     neckWidth: 0.22,
                     depthMultiplier: 1.20,
                     sleeveLengthFraction: 0.96,
@@ -58,8 +58,8 @@ export class GarmentModelFactory {
             case 'tshirt':
             default:
                 return this._createDeformableGarment('tshirt', texture, {
-                    neckDrop: 0.10,
-                    neckWidth: 0.30,
+                    neckDrop: 0.04, // Tamed from 0.10 to fit cleanly at the throat/clavicles
+                    neckWidth: 0.23, // Tamed from 0.30 to avoid over-scooping
                     depthMultiplier: 1.0,
                     sleeveLengthFraction: 0.44, // short sleeves
                     sleeveRadiusScale: 1.0,
@@ -139,6 +139,24 @@ export class GarmentModelFactory {
             root.add(hoodMesh);
         }
 
+        // 6. Forearm AR Occlusion Capsules (Depth Mask)
+        // Writes strictly to Z-buffer with colorWrite: false so real webcam arms
+        // naturally occlude virtual garments when arms are held across the chest
+        const occluderGeo = new THREE.CylinderGeometry(0.04, 0.035, 0.25, 8);
+        const occluderMat = new THREE.MeshBasicMaterial({
+            colorWrite: false,
+            depthWrite: true,
+        });
+        const leftArmOccluder = new THREE.Mesh(occluderGeo, occluderMat);
+        leftArmOccluder.renderOrder = -1;
+        leftArmOccluder.visible = false;
+        root.add(leftArmOccluder);
+
+        const rightArmOccluder = new THREE.Mesh(occluderGeo, occluderMat);
+        rightArmOccluder.renderOrder = -1;
+        rightArmOccluder.visible = false;
+        root.add(rightArmOccluder);
+
         // Attach dynamic Landmark-Anchored Deformer
         root.userData = {
             type,
@@ -148,6 +166,8 @@ export class GarmentModelFactory {
             rightSleeve: rightSleeveMesh,
             collar: collarMesh,
             hood: hoodMesh,
+            leftArmOccluder,
+            rightArmOccluder,
             options,
 
             /**
@@ -195,17 +215,22 @@ export class GarmentModelFactory {
 
                 const shoulderWidth3D = Math.max(0.20, C_ls.distanceTo(C_rs));
 
-                // 1. Deform Torso Mesh
+                // 1. Deform Torso Mesh (with dynamic arm lift and silhouette bounds constraint)
                 GarmentModelFactory._deformTorso(torsoMesh.geometry, {
                     C_neck, C_ls, C_rs, C_sternum, C_solar, C_navel,
                     C_hipCenter, C_lh, C_rh, C_leftArmpit, C_rightArmpit,
                     C_leftRib, C_rightRib, C_leftWaist, C_rightWaist,
-                    shoulderWidth3D
+                    leftArmLift: (bodyCage.leftArmLift || 0) * visibleHeight,
+                    rightArmLift: (bodyCage.rightArmLift || 0) * visibleHeight,
+                    shoulderWidth3D,
+                    visibleWidth,
+                    visibleHeight
                 }, { ...options, ...tweaks });
 
-                // 2. Deform Left Sleeve (dual-segment shoulder -> elbow -> wrist articulation)
+                // 2. Deform Left Sleeve (seamless shoulder-to-armpit seam welding)
                 GarmentModelFactory._deformSleeve(leftSleeveMesh.geometry, {
                     origin: C_ls,
+                    armpit: C_leftArmpit,
                     elbow: C_leftElbow,
                     wrist: C_leftWrist,
                     wristVisibility: bodyCage.leftWrist?.visibility ?? 1.0,
@@ -213,9 +238,10 @@ export class GarmentModelFactory {
                     isLeft: true
                 }, { ...options, ...tweaks });
 
-                // 3. Deform Right Sleeve (dual-segment shoulder -> elbow -> wrist articulation)
+                // 3. Deform Right Sleeve (seamless shoulder-to-armpit seam welding)
                 GarmentModelFactory._deformSleeve(rightSleeveMesh.geometry, {
                     origin: C_rs,
+                    armpit: C_rightArmpit,
                     elbow: C_rightElbow,
                     wrist: C_rightWrist,
                     wristVisibility: bodyCage.rightWrist?.visibility ?? 1.0,
@@ -237,6 +263,29 @@ export class GarmentModelFactory {
                     const hoodScale = shoulderWidth3D * 1.7;
                     hoodMesh.scale.set(hoodScale, hoodScale * 1.15, hoodScale * 0.85);
                 }
+
+                // 6. Update Forearm Depth Occluders (real-time foreground arm occlusion)
+                const updateOccluder = (mesh, pElbow, pWrist, vis) => {
+                    if (!mesh) return;
+                    if (pElbow && pWrist && (vis > 0.35)) {
+                        const dir = pWrist.clone().sub(pElbow);
+                        const len = dir.length();
+                        if (len > 0.04) {
+                            mesh.visible = true;
+                            const mid = pElbow.clone().lerp(pWrist, 0.5);
+                            mid.z += 0.025; // Forward bias towards camera for crisp foreground occlusion
+                            mesh.position.copy(mid);
+                            const scaleR = shoulderWidth3D * 0.22;
+                            mesh.scale.set(scaleR, len / 0.25, scaleR);
+                            mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+                            return;
+                        }
+                    }
+                    mesh.visible = false;
+                };
+
+                updateOccluder(leftArmOccluder, C_leftElbow, C_leftWrist, bodyCage.leftWrist?.visibility ?? 1.0);
+                updateOccluder(rightArmOccluder, C_rightElbow, C_rightWrist, bodyCage.rightWrist?.visibility ?? 1.0);
             }
         };
 
@@ -389,12 +438,16 @@ export class GarmentModelFactory {
             C_neck, C_ls, C_rs, C_sternum, C_solar, C_navel,
             C_hipCenter, C_lh, C_rh, C_leftArmpit, C_rightArmpit,
             C_leftRib, C_rightRib, C_leftWaist, C_rightWaist,
-            shoulderWidth3D
+            leftArmLift = 0, rightArmLift = 0,
+            shoulderWidth3D,
+            visibleWidth = 1.0,
+            visibleHeight = 1.0
         } = pts;
 
-        const neckDrop = options.neckDrop || 0.10;
-        const neckWidth = options.neckWidth || 0.30;
+        const neckDrop = options.neckDrop || 0.04;
+        const neckWidth = options.neckWidth || 0.23;
         const depthMul = options.depthMultiplier || 1.0;
+        const silhouetteBounds = options.silhouetteBounds || null;
 
         let idx = 0;
         for (let j = 0; j <= Ny; j++) {
@@ -416,6 +469,36 @@ export class GarmentModelFactory {
                 L = C_leftArmpit.clone().lerp(C_ls, t);
                 C = C_sternum.clone().lerp(C_neck, t);
                 R = C_rightArmpit.clone().lerp(C_rs, t);
+
+                // Dynamic lateral torso elevation when arms are raised (stretches latissimus and shoulders)
+                L.y += leftArmLift * t * 0.40;
+                R.y += rightArmLift * t * 0.40;
+            }
+
+            // Silhouette coordinate fitting (Elastic edge snapping & overshoot elimination)
+            if (silhouetteBounds && silhouetteBounds.length >= 4) {
+                const approxPy = (L.y + R.y) * 0.5;
+                const sliceNormY = 0.5 - (approxPy / visibleHeight);
+
+                let bestSlice = null;
+                let minDist = 999;
+                for (let k = 0; k < silhouetteBounds.length; k++) {
+                    const d = Math.abs(silhouetteBounds[k].y - sliceNormY);
+                    if (d < minDist) {
+                        minDist = d;
+                        bestSlice = silhouetteBounds[k];
+                    }
+                }
+
+                if (bestSlice && minDist < 0.12) {
+                    const targetLeft3D = (bestSlice.left - 0.5) * visibleWidth;
+                    const targetRight3D = (bestSlice.right - 0.5) * visibleWidth;
+
+                    // Elastic blend factor: stronger around the ribcage/waist, soft around shoulders
+                    const fitFactor = (v < 0.85) ? 0.38 : 0.18;
+                    L.x = L.x * (1 - fitFactor) + targetLeft3D * fitFactor;
+                    R.x = R.x * (1 - fitFactor) + targetRight3D * fitFactor;
+                }
             }
 
             for (let i = 0; i <= Nx; i++) {
@@ -470,13 +553,14 @@ export class GarmentModelFactory {
     /**
      * Real-time Sleeve Mesh Deformation anchored at the shoulder and draped along the arm vector
      * Supports both short sleeves (tapered bicep ring) and articulated long sleeves (shoulder -> elbow -> wrist).
+     * Includes seamless armhole seam welding so sleeves never tear or detach when arms raise.
      */
     static _deformSleeve(geo, pts, options = {}) {
         const N_len = 18;
         const N_circ = 16;
         const pos = geo.attributes.position.array;
 
-        const { origin, elbow, wrist, wristVisibility, shoulderWidth3D, isLeft } = pts;
+        const { origin, armpit, elbow, wrist, wristVisibility, shoulderWidth3D, isLeft } = pts;
         const isShortSleeve = options.sleeveLengthFraction && options.sleeveLengthFraction < 0.6;
         const radiusScale = options.sleeveRadiusScale || 1.0;
 
@@ -484,6 +568,15 @@ export class GarmentModelFactory {
         const elbowRadius = shoulderWidth3D * 0.125 * radiusScale;
         const wristRadius = shoulderWidth3D * 0.095 * radiusScale;
         const bicepRadius = shoulderWidth3D * 0.138 * radiusScale;
+
+        // Armhole seam geometry for seamless welding into torso
+        const armpitPt = armpit || origin.clone().add(new THREE.Vector3(0, -shoulderWidth3D * 0.35, 0));
+        const armholeMid = origin.clone().lerp(armpitPt, 0.5);
+        const armholeVec = armpitPt.clone().sub(origin);
+        const armholeRadiusY = Math.max(0.04, armholeVec.length() * 0.5);
+        const armholeDirY = armholeVec.clone().normalize();
+        const armholeDirZ = new THREE.Vector3(0, 0, 1);
+        const armholeRadiusZ = shoulderWidth3D * 0.13 * radiusScale;
 
         // Upper arm vector: from shoulder (origin) to elbow
         const V_upper = (elbow ? elbow.clone().sub(origin) : new THREE.Vector3(0, -shoulderWidth3D * 0.9, 0));
@@ -524,7 +617,7 @@ export class GarmentModelFactory {
             let ringCenter, r, uAxis, vAxis;
 
             if (isShortSleeve) {
-                // Short sleeve (T-Shirt): spans shoulder down to bicep (options.sleeveLengthFraction, default 0.42)
+                // Short sleeve (T-Shirt): spans shoulder down to bicep
                 const frac = t * (options.sleeveLengthFraction || 0.42);
                 ringCenter = origin.clone().addScaledVector(V_upper, frac);
                 r = topRadius * (1.0 - t) + bicepRadius * t;
@@ -548,6 +641,10 @@ export class GarmentModelFactory {
                 }
             }
 
+            // Cubic smoothstep blend: 1.0 at shoulder/armhole seam (t=0) down to 0.0 along bicep (t >= 0.35)
+            const seamWeight = Math.max(0, 1.0 - t / 0.35);
+            const w = seamWeight * seamWeight * (3 - 2 * seamWeight);
+
             // Wrap complete 360-degree cylinder enclosing the arm
             for (let i = 0; i <= N_circ; i++) {
                 const fracCirc = i / N_circ;
@@ -557,9 +654,20 @@ export class GarmentModelFactory {
                 const sinT = Math.sin(theta);
                 const cosT = Math.cos(theta);
 
-                const px = ringCenter.x + r * (sinT * uAxis.x + cosT * vAxis.x);
-                const py = ringCenter.y + r * (sinT * uAxis.y + cosT * vAxis.y);
-                const pz = ringCenter.z + r * (sinT * uAxis.z + cosT * vAxis.z);
+                // Bone ring coordinate
+                const p_bone_x = ringCenter.x + r * (sinT * uAxis.x + cosT * vAxis.x);
+                const p_bone_y = ringCenter.y + r * (sinT * uAxis.y + cosT * vAxis.y);
+                const p_bone_z = ringCenter.z + r * (sinT * uAxis.z + cosT * vAxis.z);
+
+                // Armhole perimeter coordinate (welded to shoulder origin and armpit)
+                const p_seam_x = armholeMid.x - cosT * armholeRadiusY * armholeDirY.x + sinT * armholeRadiusZ * armholeDirZ.x;
+                const p_seam_y = armholeMid.y - cosT * armholeRadiusY * armholeDirY.y + sinT * armholeRadiusZ * armholeDirZ.y;
+                const p_seam_z = armholeMid.z - cosT * armholeRadiusY * armholeDirY.z + sinT * armholeRadiusZ * armholeDirZ.z;
+
+                // Seamlessly blended coordinate
+                const px = p_seam_x * w + p_bone_x * (1 - w);
+                const py = p_seam_y * w + p_bone_y * (1 - w);
+                const pz = p_seam_z * w + p_bone_z * (1 - w);
 
                 pos[idx * 3] = px;
                 pos[idx * 3 + 1] = py;
