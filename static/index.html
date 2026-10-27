@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="WearItNow - Real-time AR Virtual Garment Try-On using body tracking and 3D projection">
+    <title>WearItNow — AR Virtual Try-On</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👕</text></svg>">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/css/style.css">
+
+    <!-- MediaPipe Tasks Vision (body tracking) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/vision_bundle.min.js" crossorigin="anonymous"></script>
+
+    <!-- Three.js (3D garment rendering) -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">
+                <span class="loading-icon">👕</span>
+                <h1>WearItNow</h1>
+                <p class="loading-subtitle">AR Virtual Try-On</p>
+            </div>
+            <div class="loading-progress">
+                <div class="loading-bar">
+                    <div class="loading-bar-fill" id="loading-bar-fill"></div>
+                </div>
+                <p class="loading-status" id="loading-status">Initializing...</p>
+            </div>
+        </div>
+        <div class="loading-bg-orb loading-bg-orb-1"></div>
+        <div class="loading-bg-orb loading-bg-orb-2"></div>
+        <div class="loading-bg-orb loading-bg-orb-3"></div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="app" class="hidden">
+        <!-- Header -->
+        <header id="header">
+            <div class="header-left">
+                <div class="logo">
+                    <span class="logo-icon">👕</span>
+                    <h1 class="logo-text">WearItNow</h1>
+                </div>
+            </div>
+            <div class="header-right">
+                <a href="/calibrate.html" class="stat-chip" style="text-decoration: none; color: #00d4ff; border-color: rgba(0, 212, 255, 0.35); font-weight: 600; cursor: pointer; transition: all 0.2s;" title="Open Manual Calibration & Alignment Lab">🎛️ Calibration Lab</a>
+                <div class="stat-chip" id="fps-chip">
+                    <span class="stat-dot fps-dot"></span>
+                    <span id="fps-value">--</span> FPS
+                </div>
+                <div class="stat-chip" id="tracking-chip">
+                    <span class="stat-dot tracking-dot"></span>
+                    <span id="tracking-status">No Tracking</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main id="main-content">
+            <!-- Camera Viewport -->
+            <div id="viewport-container">
+                <div class="viewport-controls">
+                    <div class="source-toggle">
+                        <button id="src-webcam" class="source-btn" type="button" title="Live Camera feed">📷 Live Camera</button>
+                        <button id="src-person-male" class="source-btn active" type="button" data-src="/samples/test_person_male.jpg" title="Standing male model front view">🧍 Still: Male</button>
+                        <button id="src-person-female" class="source-btn" type="button" data-src="/samples/test_person_female.jpg" title="Standing female model front view">👩 Still: Female</button>
+                        <button id="src-person-turned" class="source-btn" type="button" data-src="/samples/test_person_turned.jpg" title="Sitting model turned at angle">💻 Still: Desk</button>
+                        <button id="src-upload-person" class="source-btn" type="button" title="Upload custom photo of a person">📁 Custom Photo</button>
+                        <input type="file" id="person-photo-input" accept="image/*" class="hidden">
+                    </div>
+                </div>
+                <div id="viewport">
+                    <video id="camera-feed" class="hidden" autoplay playsinline muted></video>
+                    <img id="mannequin-feed" src="/samples/test_person_male.jpg" alt="Still Test Person">
+                    <canvas id="tracking-canvas"></canvas>
+                    <canvas id="garment-canvas"></canvas>
+
+                    <!-- Viewport overlay messages -->
+                    <div id="viewport-overlay">
+                        <div id="viewport-message">
+                            <span class="msg-icon">📷</span>
+                            <p class="msg-text">Starting camera...</p>
+                        </div>
+                    </div>
+
+                    <!-- Body guide (shown when no tracking) -->
+                    <div id="body-guide" class="hidden">
+                        <svg viewBox="0 0 200 400" class="body-silhouette">
+                            <ellipse cx="100" cy="50" rx="30" ry="35" fill="none" stroke="rgba(0,212,255,0.3)" stroke-width="1.5" stroke-dasharray="5,5"/>
+                            <line x1="100" y1="85" x2="100" y2="220" stroke="rgba(0,212,255,0.3)" stroke-width="1.5" stroke-dasharray="5,5"/>
+                            <line x1="100" y1="110" x2="40" y2="190" stroke="rgba(0,212,255,0.3)" stroke-width="1.5" stroke-dasharray="5,5"/>
+                            <line x1="100" y1="110" x2="160" y2="190" stroke="rgba(0,212,255,0.3)" stroke-width="1.5" stroke-dasharray="5,5"/>
+                            <line x1="100" y1="220" x2="60" y2="360" stroke="rgba(0,212,255,0.3)" stroke-width="1.5" stroke-dasharray="5,5"/>
+                            <line x1="100" y1="220" x2="140" y2="360" stroke="rgba(0,212,255,0.3)" stroke-width="1.5" stroke-dasharray="5,5"/>
+                        </svg>
+                        <p>Stand in frame for body tracking</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Control Panel (Sidebar) -->
+            <aside id="control-panel">
+                <!-- Step 1: Upload Garment -->
+                <div class="panel-card" id="upload-card">
+                    <div class="card-header">
+                        <span class="step-badge">1</span>
+                        <h2>Upload Garment</h2>
+                    </div>
+                    <div id="drop-zone" tabindex="0" role="button" aria-label="Upload garment image">
+                        <input type="file" id="garment-input" accept="image/*" hidden>
+                        <div id="drop-content">
+                            <div class="drop-icon-wrapper">
+                                <span class="drop-icon">📸</span>
+                            </div>
+                            <p class="drop-text">Drop image here</p>
+                            <p class="drop-subtext">or click to browse</p>
+                        </div>
+                        <div id="preview-content" class="hidden">
+                            <img id="garment-preview" alt="Uploaded garment">
+                            <button id="clear-btn" class="icon-btn" title="Remove image">✕</button>
+                        </div>
+                    </div>
+                    <div class="sample-presets">
+                        <span class="presets-label">Or try a sample:</span>
+                        <div class="preset-chips">
+                            <button class="preset-chip" type="button" data-sample="/samples/tshirt.png">👕 T-Shirt</button>
+                            <button class="preset-chip" type="button" data-sample="/samples/hoodie.png">🧥 Hoodie</button>
+                            <button class="preset-chip" type="button" data-sample="/samples/formal_shirt.png">👔 Shirt</button>
+                            <button class="preset-chip" type="button" data-sample="/samples/jacket.png">🧥 Jacket</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Classification Result -->
+                <div class="panel-card disabled" id="classify-card">
+                    <div class="card-header">
+                        <span class="step-badge">2</span>
+                        <h2>Detected Type</h2>
+                    </div>
+                    <div id="classification-result" class="hidden">
+                        <div class="classify-main">
+                            <span id="garment-type-icon" class="classify-icon"></span>
+                            <div class="classify-info">
+                                <span id="garment-type-label" class="classify-label"></span>
+                                <span id="garment-confidence" class="classify-confidence"></span>
+                            </div>
+                        </div>
+                        <div id="classify-scores" class="classify-scores"></div>
+                        <div class="category-override">
+                            <span class="override-label">Change 3D model:</span>
+                            <div class="override-chips">
+                                <button class="override-chip" type="button" data-cat="tshirt">👕 T-Shirt</button>
+                                <button class="override-chip" type="button" data-cat="hoodie">🧥 Hoodie</button>
+                                <button class="override-chip" type="button" data-cat="formal_shirt">👔 Shirt</button>
+                                <button class="override-chip" type="button" data-cat="jacket">🧥 Jacket</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="classify-loading" class="card-loading hidden">
+                        <div class="spinner"></div>
+                        <p>Analyzing garment...</p>
+                    </div>
+                    <div id="classify-placeholder">
+                        <p class="placeholder-text">Upload a garment to classify</p>
+                    </div>
+                </div>
+
+                <!-- Step 3: Mode Selection & Try-On -->
+                <div class="panel-card disabled" id="tryon-card">
+                    <div class="card-header">
+                        <span class="step-badge">3</span>
+                        <h2>Try It On</h2>
+                    </div>
+                    <div id="mode-selector">
+                        <button id="mode-quick" class="mode-btn active" data-mode="quick">
+                            <span class="mode-icon">⚡</span>
+                            <div class="mode-info">
+                                <span class="mode-name">Quick Mode</span>
+                                <span class="mode-desc">Fast • 30-60 FPS</span>
+                            </div>
+                        </button>
+                        <button id="mode-ai" class="mode-btn" data-mode="ai">
+                            <span class="mode-icon">🤖</span>
+                            <div class="mode-info">
+                                <span class="mode-name">AI Enhanced</span>
+                                <span class="mode-desc">Better quality • Slower</span>
+                            </div>
+                        </button>
+                    </div>
+                    <button id="tryon-btn" class="primary-btn" disabled>
+                        <span class="btn-icon">▶</span>
+                        Start Try-On
+                    </button>
+                    <button id="stop-btn" class="danger-btn hidden">
+                        <span class="btn-icon">■</span>
+                        Stop Try-On
+                    </button>
+                </div>
+
+                <!-- Processing Info -->
+                <div class="panel-card info-card" id="info-card">
+                    <div id="timing-info" class="hidden">
+                        <h3>Processing Stats</h3>
+                        <div class="timing-grid">
+                            <span class="timing-label">Classification</span>
+                            <span class="timing-value" id="time-classify">--</span>
+                            <span class="timing-label">Segmentation</span>
+                            <span class="timing-value" id="time-segment">--</span>
+                            <span class="timing-label">Texture</span>
+                            <span class="timing-value" id="time-process">--</span>
+                            <span class="timing-label">Total</span>
+                            <span class="timing-value total" id="time-total">--</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- Main Application Script -->
+    <script type="module" src="/js/app.js?v=7.0"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# WearItNow - AR Virtual Garment Try-On
+# Core server
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+python-multipart==0.0.9
+aiofiles==23.2.1
+
+# Image processing
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Garment segmentation (uses U2-Net under the hood)
+rembg==2.0.57
+
+# Garment classification (CLIP zero-shot - no training needed)
+transformers>=4.40.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# For AI Enhanced mode (optional, uses Real-ESRGAN)
+# realesrgan>=0.3.0

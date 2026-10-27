@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WearItNow – AR/VR Course Project Review 2</title>
+    <style>
+        /* ── Print & Page Setup ── */
+        @page {
+            size: A4;
+            margin: 18mm 16mm 18mm 16mm;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 11.5pt;
+            line-height: 1.55;
+            color: #1e1e1e;
+            background: #fff;
+            padding: 0;
+        }
+
+        /* ── Cover Page ── */
+        .cover {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            text-align: center;
+            page-break-after: always;
+            border: 3px solid #1a1a2e;
+            padding: 60px 40px;
+        }
+        .cover .college-name {
+            font-size: 16pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #1a1a2e;
+            margin-bottom: 6px;
+        }
+        .cover .dept {
+            font-size: 12pt;
+            color: #444;
+            margin-bottom: 30px;
+        }
+        .cover .subject-label {
+            font-size: 11pt;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+        .cover .subject-name {
+            font-size: 14pt;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 35px;
+        }
+        .cover .project-title {
+            font-size: 26pt;
+            font-weight: 800;
+            color: #0d47a1;
+            margin-bottom: 8px;
+        }
+        .cover .project-subtitle {
+            font-size: 13pt;
+            color: #555;
+            margin-bottom: 50px;
+        }
+        .cover .review-badge {
+            display: inline-block;
+            background: #0d47a1;
+            color: #fff;
+            font-size: 12pt;
+            font-weight: 700;
+            padding: 8px 28px;
+            border-radius: 6px;
+            margin-bottom: 50px;
+            letter-spacing: 0.5px;
+        }
+        .cover .team-table {
+            border-collapse: collapse;
+            margin: 0 auto;
+            font-size: 11pt;
+        }
+        .cover .team-table th {
+            background: #1a1a2e;
+            color: #fff;
+            padding: 8px 22px;
+            text-align: left;
+        }
+        .cover .team-table td {
+            padding: 7px 22px;
+            border: 1px solid #ccc;
+        }
+        .cover .date {
+            margin-top: 40px;
+            font-size: 11pt;
+            color: #888;
+        }
+
+        /* ── Section Styling ── */
+        .section {
+            page-break-inside: avoid;
+            margin-bottom: 28px;
+        }
+
+        h2 {
+            font-size: 16pt;
+            color: #0d47a1;
+            border-bottom: 2.5px solid #0d47a1;
+            padding-bottom: 5px;
+            margin-bottom: 14px;
+            margin-top: 30px;
+        }
+
+        h3 {
+            font-size: 13pt;
+            color: #1a1a2e;
+            margin-top: 18px;
+            margin-bottom: 8px;
+        }
+
+        p, li {
+            margin-bottom: 6px;
+        }
+
+        ul {
+            margin-left: 22px;
+        }
+
+        /* ── Code Blocks ── */
+        pre {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-left: 4px solid #0d47a1;
+            border-radius: 4px;
+            padding: 12px 14px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 9pt;
+            line-height: 1.45;
+            overflow-x: auto;
+            white-space: pre;
+            margin: 10px 0 16px 0;
+            page-break-inside: avoid;
+        }
+
+        code {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 9.5pt;
+            background: #eef;
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+
+        .filename {
+            display: inline-block;
+            background: #0d47a1;
+            color: #fff;
+            font-size: 9pt;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 4px 4px 0 0;
+            margin-bottom: -1px;
+            font-family: 'Consolas', monospace;
+        }
+
+        /* ── File Tree ── */
+        .file-tree {
+            background: #fafafa;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 14px 18px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 9.5pt;
+            line-height: 1.6;
+            margin: 10px 0 16px 0;
+        }
+        .file-tree .dir  { color: #0d47a1; font-weight: 700; }
+        .file-tree .file { color: #333; }
+        .file-tree .desc { color: #888; font-style: italic; }
+
+        /* ── Screenshot Placeholders ── */
+        .screenshot-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin: 14px 0 18px 0;
+        }
+        .screenshot-box {
+            border: 2px dashed #bbb;
+            border-radius: 8px;
+            min-height: 220px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 10pt;
+            text-align: center;
+            padding: 16px;
+            background: #fafafa;
+        }
+        .screenshot-box img {
+            max-width: 100%;
+            max-height: 280px;
+            border-radius: 6px;
+            object-fit: contain;
+        }
+        .screenshot-box .caption {
+            margin-top: 8px;
+            font-size: 9.5pt;
+            color: #555;
+            font-weight: 600;
+        }
+        .screenshot-full {
+            border: 2px dashed #bbb;
+            border-radius: 8px;
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 10pt;
+            text-align: center;
+            padding: 20px;
+            background: #fafafa;
+            margin: 14px 0 18px 0;
+        }
+        .screenshot-full img {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 6px;
+            object-fit: contain;
+        }
+
+        /* ── Info Box ── */
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #0d47a1;
+            padding: 12px 16px;
+            border-radius: 0 6px 6px 0;
+            margin: 14px 0;
+            font-size: 10.5pt;
+        }
+
+        /* ── Table ── */
+        table.tech-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0 16px 0;
+            font-size: 10.5pt;
+        }
+        table.tech-table th {
+            background: #1a1a2e;
+            color: #fff;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        table.tech-table td {
+            padding: 7px 12px;
+            border: 1px solid #ddd;
+        }
+        table.tech-table tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+
+        /* ── Video Link Box ── */
+        .video-link-box {
+            background: #fff3e0;
+            border: 2px solid #ff9800;
+            border-radius: 8px;
+            padding: 18px 22px;
+            text-align: center;
+            margin: 14px 0;
+        }
+        .video-link-box .label {
+            font-size: 11pt;
+            font-weight: 700;
+            color: #e65100;
+            margin-bottom: 8px;
+        }
+        .video-link-box .link {
+            font-size: 12pt;
+            color: #0d47a1;
+            word-break: break-all;
+            font-weight: 600;
+        }
+
+        /* ── Page Break Helper ── */
+        .page-break {
+            page-break-before: always;
+        }
+
+        @media print {
+            body { padding: 0; }
+            .cover { border-width: 2px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- COVER PAGE                                             -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="cover">
+    <div class="college-name"><!-- REPLACE: Your College Name -->Vishwakarma INstitute of Technology</div>
+    <div class="dept"><!-- REPLACE: Your Department -->Department of Computer Engineering</div>
+
+    <div class="subject-label">Course</div>
+    <div class="subject-name">Augmented Reality &amp; Virtual Reality (AR/VR)</div>
+
+    <div class="project-title">WearItNow</div>
+    <div class="project-subtitle">AR Virtual Garment Try-On System</div>
+
+    <div class="review-badge">COURSE PROJECT – REVIEW 2</div>
+
+    <table class="team-table">
+        <thead>
+            <tr>
+                <th>Role</th>
+                <th>Name</th>
+                <th>Roll No.</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- REPLACE: Add your team members -->
+            <tr><td>Group Leader</td><td>Pranav Sable</td><td>39</td></tr>
+            <tr><td>Member</td><td>Kunal Sable</td><td>38</td></tr>
+            <tr><td>Member</td><td>Raghav Jhunjhunwala</td><td>12</td></tr>
+            <tr><td>Member</td><td>Arjun Salunke</td><td>46</td></tr>
+            <tr><td>Member</td><td>Pratitya Wankhede</td><td>5</td></tr>
+        </tbody>
+    </table>
+
+    <div class="date">Semester 5 &nbsp;|&nbsp; October 2026</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 1. PROJECT DESCRIPTION                                 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>1. Project Description</h2>
+<div class="section">
+    <p>
+        <strong>WearItNow</strong> is a web-based <strong>Augmented Reality (AR) virtual garment try-on system</strong>
+        that lets users upload any garment photograph and instantly see it overlaid on their body in real time through
+        their webcam or on a reference photo.
+    </p>
+
+    <h3>Key Objectives</h3>
+    <ul>
+        <li>Enable <strong>real-time AR garment overlay</strong> using only a standard webcam—no special hardware required.</li>
+        <li>Automatically <strong>classify</strong> uploaded garments into categories (T-Shirt, Hoodie, Formal Shirt, Jacket) using AI.</li>
+        <li>Segment garments from their background and extract textures for <strong>photorealistic 3D rendering</strong>.</li>
+        <li>Track the user's body with <strong>MediaPipe BlazePose (33 3D landmarks)</strong> and deform garment geometry to match in real time.</li>
+    </ul>
+
+    <h3>AR/VR Functionality</h3>
+    <ul>
+        <li><strong>Real-time Pose Tracking:</strong> MediaPipe BlazePose provides 33 3D body landmarks at ~30 FPS, enabling precise garment alignment.</li>
+        <li><strong>18-Point Anatomical Body Cage:</strong> Custom-built deformable cage (neck, clavicles, armpits, ribs, waist, hips, etc.) for vertex-level garment warping.</li>
+        <li><strong>3D Garment Rendering:</strong> Three.js-powered procedural garment meshes (torso, sleeves, collar/hood) with PBR-like lighting projected over the camera feed.</li>
+        <li><strong>Calibration System:</strong> Dedicated calibration page with 12+ fine-tune sliders for per-subject, per-garment ground-truth presets.</li>
+        <li><strong>AI-Powered Backend:</strong> CLIP zero-shot classification + U2-Net segmentation for automatic garment processing.</li>
+    </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 2. TECHNOLOGY STACK                                    -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>2. Technology Stack</h2>
+<div class="section">
+    <table class="tech-table">
+        <thead>
+            <tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Frontend</td><td>HTML5, CSS3, Vanilla JavaScript (ES Modules)</td><td>UI, camera access, orchestration</td></tr>
+            <tr><td>AR Tracking</td><td>MediaPipe BlazePose (PoseLandmarker Full)</td><td>Real-time 3D body pose estimation (33 landmarks)</td></tr>
+            <tr><td>3D Rendering</td><td>Three.js (WebGL)</td><td>Procedural garment mesh generation, texturing, AR overlay</td></tr>
+            <tr><td>Backend Server</td><td>FastAPI + Uvicorn (Python)</td><td>REST API, garment processing pipeline</td></tr>
+            <tr><td>Segmentation</td><td>rembg / U2-Net Portable (4.7 MB)</td><td>Automatic background removal from garment images</td></tr>
+            <tr><td>Classification</td><td>OpenAI CLIP ViT-B/32 (Zero-Shot)</td><td>Garment type detection without training data</td></tr>
+            <tr><td>CV Fallback</td><td>OpenCV + NumPy</td><td>Morphological analysis, GrabCut segmentation fallback</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 3. ARCHITECTURE & WORKFLOW                             -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>3. System Architecture &amp; Workflow</h2>
+<div class="section">
+    <div class="info-box">
+        <strong>Processing Pipeline:</strong><br>
+        <code>User uploads garment image → Backend: Classify (CLIP) → Segment (U2-Net) → Extract Texture →
+        Frontend: Load 3D Garment Mesh → Body Tracking (BlazePose) → Deform &amp; Render (Three.js) → AR Overlay on Camera Feed</code>
+    </div>
+
+    <h3>Workflow Diagram</h3>
+    <pre>
+┌──────────────────────────────────────────────────────────────────┐
+│                         FRONTEND (Browser)                       │
+│                                                                  │
+│  ┌────────────┐    ┌──────────────┐    ┌──────────────────────┐  │
+│  │ Camera Feed │───▸│  BodyTracker │───▸│  GarmentRenderer     │  │
+│  │ (Webcam /   │    │ (MediaPipe   │    │ (Three.js WebGL)     │  │
+│  │  Photo)     │    │  BlazePose)  │    │ - Procedural meshes  │  │
+│  └────────────┘    │ - 33 3D pts  │    │ - Body cage deform   │  │
+│                     │ - EMA smooth │    │ - Texture mapping    │  │
+│  ┌────────────┐    └──────────────┘    └──────────────────────┘  │
+│  │ Upload Img  │───▸ POST /api/process-garment                   │
+│  └────────────┘                                                  │
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │ HTTP API
+┌────────────────────────────────▼─────────────────────────────────┐
+│                      BACKEND (FastAPI + Python)                   │
+│                                                                   │
+│  Step 1: GarmentClassifier  ──▸  CLIP ViT-B/32 zero-shot         │
+│          (+ morphological CV fallback)                            │
+│  Step 2: GarmentSegmenter   ──▸  rembg / U2-Net Portable         │
+│          (+ OpenCV fallback)                                      │
+│  Step 3: TextureProcessor   ──▸  Extract & prepare RGBA texture   │
+│                                                                   │
+│  Response: { classification, segmented_b64, texture_b64, bbox }   │
+└───────────────────────────────────────────────────────────────────┘
+    </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 4. PROJECT FILE STRUCTURE                              -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<h2>4. Project File Structure</h2>
+<div class="section">
+    <div class="file-tree">
+<span class="dir">WearItNow/</span>
+├── <span class="file">run.py</span>              <span class="desc">← One-click launcher (dependency check + start server)</span>
+├── <span class="file">requirements.txt</span>     <span class="desc">← Python dependencies</span>
+│
+├── <span class="dir">server/</span>              <span class="desc">← FastAPI backend</span>
+│   ├── <span class="file">__init__.py</span>
+│   ├── <span class="file">main.py</span>          <span class="desc">← FastAPI app, API endpoints, ML model loading</span>
+│   └── <span class="dir">services/</span>
+│       ├── <span class="file">classifier.py</span>    <span class="desc">← CLIP zero-shot + morphological CV classifier</span>
+│       ├── <span class="file">segmenter.py</span>     <span class="desc">← U2-Net background removal + OpenCV fallback</span>
+│       └── <span class="file">texture_processor.py</span> <span class="desc">← Garment texture extraction &amp; processing</span>
+│
+└── <span class="dir">static/</span>              <span class="desc">← Frontend web application</span>
+    ├── <span class="file">index.html</span>       <span class="desc">← Main AR try-on UI</span>
+    ├── <span class="file">calibrate.html</span>   <span class="desc">← Calibration tool (12+ sliders per subject)</span>
+    ├── <span class="dir">css/</span>
+    │   ├── <span class="file">style.css</span>        <span class="desc">← Main app styles (dark theme, glassmorphism)</span>
+    │   └── <span class="file">calibrate.css</span>    <span class="desc">← Calibration page styles</span>
+    ├── <span class="dir">js/</span>
+    │   ├── <span class="file">app.js</span>           <span class="desc">← Main controller (camera, state, UI orchestration)</span>
+    │   ├── <span class="file">tracker.js</span>       <span class="desc">← MediaPipe BlazePose body tracking + body cage</span>
+    │   ├── <span class="file">garment_renderer.js</span>  <span class="desc">← Three.js 3D garment rendering &amp; AR overlay</span>
+    │   ├── <span class="file">garment_models.js</span>   <span class="desc">← Procedural garment mesh generation</span>
+    │   ├── <span class="file">calibrate.js</span>     <span class="desc">← Calibration page logic</span>
+    │   └── <span class="file">api.js</span>           <span class="desc">← HTTP API client</span>
+    └── <span class="dir">samples/</span>         <span class="desc">← Test subject photos</span>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 5. KEY SOURCE CODE                                     -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>5. Key Source Code</h2>
+
+<!-- 5.1 Server – API Endpoint -->
+<div class="section">
+    <h3>5.1 &nbsp; Backend API – Garment Processing Endpoint</h3>
+    <p>The core API receives an uploaded garment image, runs it through a 3-stage ML pipeline (Classify → Segment → Texture), and returns results as base64-encoded images with metadata.</p>
+    <span class="filename">server/main.py</span>
+<pre>@app.post("/api/process-garment")
+async def process_garment(
+    file: UploadFile = File(...),
+    mode: str = Form(default="quick"),
+):
+    """
+    Process an uploaded garment image.
+    1. Segments garment from background (U2-Net)
+    2. Classifies garment type (CLIP zero-shot)
+    3. Extracts and processes texture
+    """
+    start_time = time.time()
+
+    # Read uploaded image
+    contents = await file.read()
+    image = Image.open(io.BytesIO(contents)).convert("RGB")
+
+    # Step 1: Classify the garment
+    classification = classifier.classify(image)
+
+    # Step 2: Segment (remove background)
+    seg_result = segmenter.segment(image)
+
+    # Step 3: Process texture
+    texture = texture_processor.process(
+        seg_result["segmented"],
+        classification["category"],
+        mode=mode,
+    )
+
+    return JSONResponse({
+        "success": True,
+        "classification": classification,
+        "texture": texture_b64,
+        "segmented": segmented_b64,
+        "bbox": seg_result["bbox"],
+        "timing": { ... },
+    })</pre>
+</div>
+
+<!-- 5.2 CLIP Zero-Shot Classifier -->
+<div class="section">
+    <h3>5.2 &nbsp; CLIP Zero-Shot Garment Classification</h3>
+    <p>Uses OpenAI's CLIP ViT-B/32 to classify garments with zero training data, with a morphological CV analyzer as fallback.</p>
+    <span class="filename">server/services/classifier.py</span>
+<pre>GARMENT_CATEGORIES = {
+    "tshirt":       { "labels": ["a t-shirt", "a casual short sleeve t-shirt", ...] },
+    "hoodie":       { "labels": ["a hoodie", "a hooded sweatshirt", ...] },
+    "formal_shirt": { "labels": ["a formal shirt", "a button down dress shirt", ...] },
+    "jacket":       { "labels": ["a jacket", "a winter coat", "a bomber jacket", ...] },
+}
+
+class GarmentClassifier:
+    def classify(self, image):
+        # Primary: CLIP zero-shot
+        results = self.pipe(image, candidate_labels=ALL_LABELS)
+        category_scores = {cat_id: 0.0 for cat_id in GARMENT_CATEGORIES}
+        for result in results:
+            cat_id = LABEL_TO_CATEGORY[result["label"]]
+            category_scores[cat_id] += result["score"]
+
+        best_category = max(category_scores, key=category_scores.get)
+        return { "category": best_category, "confidence": ..., "all_scores": ... }
+
+    def _morphology_classify(self, image):
+        # Fallback: Sleeve length, collar shape, hood dome, button placket
+        # OpenCV morphological analysis
+        ...</pre>
+</div>
+
+<!-- 5.3 Body Tracking -->
+<div class="page-break"></div>
+<div class="section">
+    <h3>5.3 &nbsp; Real-Time Body Tracking (MediaPipe BlazePose)</h3>
+    <p>Tracks 33 3D body landmarks in real time and constructs an 18-point anatomical body cage used for deformable garment fitting.</p>
+    <span class="filename">static/js/tracker.js</span>
+<pre>export class BodyTracker {
+    async initialize(onProgress = null) {
+        // Load MediaPipe PoseLandmarker (Full model - GPU, with CPU fallback)
+        this.landmarker = await PoseLandmarkerClass.createFromOptions(wasmResolver, {
+            baseOptions: {
+                modelAssetPath: "pose_landmarker_full.task",
+                delegate: "GPU",
+            },
+            runningMode: "VIDEO",
+            numPoses: 1,
+            minPoseDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+        });
+    }
+
+    detect(video) {
+        const results = this.landmarker.detectForVideo(video, timestamp);
+        // Apply Exponential Moving Average (EMA) filter for jitter-free tracking
+        this.smoothedLandmarks = this._smoothLandmarks(results.landmarks[0]);
+        return this._computeMetrics(this.smoothedLandmarks, ...);
+    }
+
+    _buildBodyCage(lm) {
+        // 18-point anatomical cage:
+        // neck, clavicleLeft/Right, shoulders, armpits,
+        // sternum, solarPlexus, navel, ribs, waist, hips
+        const shoulderWidth = Math.hypot(ls.x - rs.x, ls.y - rs.y);
+        const neck = { x: shoulderCenter.x, y: shoulderCenter.y - shoulderWidth * 0.04 };
+        // ... (interpolated anatomical points)
+        return { neck, clavicleLeft, ..., shoulderWidth, torsoHeight };
+    }
+}</pre>
+</div>
+
+<!-- 5.4 3D Garment Renderer -->
+<div class="section">
+    <h3>5.4 &nbsp; Three.js 3D Garment Renderer (AR Overlay)</h3>
+    <p>Renders procedural garment meshes with real-time body-cage deformation and smooth interpolation for jitter-free AR.</p>
+    <span class="filename">static/js/garment_renderer.js</span>
+<pre>export class GarmentRenderer {
+    _initThree() {
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(50, this.aspectRatio, 0.1, 100);
+
+        this.renderer = new THREE.WebGLRenderer({
+            canvas: this.canvas,
+            alpha: true,       // Transparent background for AR overlay
+            antialias: true,
+        });
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+        // Studio cloth lighting (key, fill, rim)
+        this.scene.add(new THREE.AmbientLight(0xffffff, 1.25));
+        this.scene.add(keyLight);   // upper-front right
+        this.scene.add(fillLight);  // upper-front left
+        this.scene.add(rimLight);   // subtle rim
+    }
+
+    update(poseData, delta) {
+        if (poseData.bodyCage && this.currentGarment.userData?.updateDeformation) {
+            // FULL LANDMARK-ANCHORED MESH WARPING
+            // Deform garment vertices directly to anatomical cage positions
+            this.currentGarment.userData.updateDeformation(poseData.bodyCage, this.camera);
+        } else {
+            // Fallback: Rigid transform with calibrated presets
+            // Foreshortening: scaleX = (width / cos(yaw)) * fitFactor
+            // Yaw inversion: yaw = -rawYaw * 1.20
+        }
+
+        // Smooth interpolation (damping) for stable AR
+        this.currentPos.lerp(this.targetPos, 0.35);
+        this.currentScale.lerp(this.targetScale, 0.35);
+
+        this.renderer.render(this.scene, this.camera);
+    }
+}</pre>
+</div>
+
+<!-- 5.5 U2-Net Segmentation -->
+<div class="section">
+    <h3>5.5 &nbsp; Garment Segmentation (U2-Net)</h3>
+    <p>Isolates garments from backgrounds using the lightweight U2-Net Portable model with alpha matting for clean edges.</p>
+    <span class="filename">server/services/segmenter.py</span>
+<pre>class GarmentSegmenter:
+    def __init__(self):
+        from rembg import new_session
+        self.session = new_session("u2netp")  # 4.7MB lightweight model
+
+    def segment(self, image):
+        from rembg import remove
+        segmented = remove(
+            image,
+            session=self.session,
+            alpha_matting=True,
+            alpha_matting_foreground_threshold=240,
+            alpha_matting_background_threshold=15,
+        )
+        return { "segmented": segmented, "mask": mask, "bbox": bbox }</pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 6. SCREENSHOTS                                         -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<h2>6. Screenshots of Work Completed</h2>
+<div class="section">
+    <p>Below are screenshots demonstrating the AR try-on system in action:</p>
+
+    <h3>6.1 &nbsp; Main Application UI</h3>
+    <div class="screenshot-full">
+        <!-- REPLACE: Insert your screenshot here -->
+        <img src="screenshot_main_ui.png" alt="Main UI">
+        <div class="caption">Figure 1: Main AR Try-On Interface – Upload panel, classification result, and camera viewport</div>
+    </div>
+
+    
+    <h3>6.2 &nbsp; Real-Time AR Try-On</h3>
+    <div class="screenshot-grid">
+        <div class="screenshot-box">
+            <!-- REPLACE: Screenshot of AR overlay on person -->
+            <img src="screenshot_tryon_1.png" alt="Try-On 1">
+            <div class="caption">Figure 3a: T-Shirt try-on with body tracking</div>
+        </div>
+    </div>
+
+    <h3>6.3 &nbsp; Body Tracking Skeleton &amp; Calibration</h3>
+    <div class="screenshot-grid">
+        <div class="screenshot-box">
+            <!-- REPLACE: Screenshot showing skeleton overlay -->
+            <img src="screenshot_skeleton.png" alt="Skeleton">
+            <div class="caption">Figure 4a: MediaPipe skeleton overlay with body cage</div>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 8. ADDITIONAL DETAILS                                  -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<h2>7. Additional Details</h2>
+
+<div class="section">
+    <h3>7.1 &nbsp; Key AR/VR Features Implemented</h3>
+    <table class="tech-table">
+        <thead>
+            <tr><th>Feature</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Real-Time Pose Estimation</td><td>MediaPipe BlazePose Full – 33 3D landmarks, GPU-accelerated, ~30 FPS</td></tr>
+            <tr><td>Anatomical Body Cage</td><td>18-point deformable cage (neck, clavicles, armpits, ribs, waist, hips) for mesh warping</td></tr>
+            <tr><td>EMA Jitter Smoothing</td><td>Exponential Moving Average filter (α=0.75) on landmark stream for stable AR</td></tr>
+            <tr><td>Procedural Garment Meshes</td><td>Dynamically generated Three.js geometry for T-Shirts, Hoodies, Formal Shirts, Jackets</td></tr>
+            <tr><td>Calibrated AR Presets</td><td>12 ground-truth calibrated presets (Male/Female/Desk × 4 garment types)</td></tr>
+            <tr><td>Vertex-Level Deformation</td><td>Each garment vertex is anchored to anatomical cage control points in real time</td></tr>
+            <tr><td>WebGL AR Overlay</td><td>Transparent Three.js canvas layered over camera feed with ACES Filmic tone mapping</td></tr>
+            <tr><td>Zero-Shot AI Classification</td><td>CLIP ViT-B/32 classifies garments without any fine-tuning or training data</td></tr>
+            <tr><td>Neural Segmentation</td><td>U2-Net Portable removes backgrounds with alpha matting for clean garment extraction</td></tr>
+            <tr><td>Multi-Source Input</td><td>Webcam live feed, reference male/female/desk photos, or user-uploaded photos</td></tr>
+        </tbody>
+    </table>
+
+    <h3>7.2 &nbsp; How To Run</h3>
+<pre>
+# 1. Clone / navigate to the project directory
+cd WearItNow
+
+# 2. Run the application (auto-installs dependencies on first run)
+python run.py
+
+# 3. Open in browser
+#    → http://localhost:8000
+</pre>
+    <p>The launcher automatically checks and installs all required Python packages, downloads ML models (~800 MB on first run), and starts the FastAPI server on port 8000.</p>
+
+    <h3>7.3 &nbsp; Dependencies</h3>
+    <span class="filename">requirements.txt</span>
+<pre>
+# Core server
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+python-multipart==0.0.9
+
+# Image processing
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Garment segmentation (U2-Net)
+rembg==2.0.57
+
+# Garment classification (CLIP zero-shot)
+transformers>=4.40.0
+torch>=2.0.0
+torchvision>=0.15.0
+</pre>
+
+    <h3>7.4 &nbsp; Future Enhancements</h3>
+    <ul>
+        <li>Add support for lower-body garments (trousers, skirts) and full outfits.</li>
+        <li>Integrate Real-ESRGAN for AI-enhanced texture super-resolution.</li>
+        <li>Add multi-person tracking for group try-on scenarios.</li>
+        <li>Implement a mobile-optimized PWA version for smartphone cameras.</li>
+        <li>Add garment color/pattern customization in the AR view.</li>
+    </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- END                                                    -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div style="text-align:center; margin-top:60px; color:#888; font-size:10pt; border-top:1px solid #ddd; padding-top:14px;">
+    WearItNow – AR Virtual Garment Try-On System &nbsp;|&nbsp; AR/VR Course Project Review 2 &nbsp;|&nbsp; October 2026
+</div>
+
+</body>
+</html>

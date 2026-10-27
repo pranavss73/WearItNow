@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WearItNow — 3D Garment Calibration & Manual Tuner</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/calibrate.css">
+
+    <!-- Three.js (3D garment rendering) -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="app-container">
+        <!-- Header -->
+        <header>
+            <div class="brand">
+                <span class="logo-badge">🎛️</span>
+                <div class="brand-text">
+                    <h1>WearItNow Calibration Lab</h1>
+                    <p>Interactive 3D Garment Alignment & Fitting Tuner</p>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <div class="status-pill" id="status-pill">
+                    <span class="status-dot"></span>
+                    <span id="status-text">Pose Calibrated</span>
+                </div>
+                <a href="/index.html" class="nav-link">
+                    <span>←</span> Return to Live AR Try-On
+                </a>
+            </div>
+        </header>
+
+        <!-- Main Body -->
+        <main>
+            <!-- Left: Viewport Area -->
+            <section id="viewport-section">
+                <!-- Selectors Bar -->
+                <div class="selector-bar">
+                    <div class="selector-group">
+                        <span class="btn-group-label">Subject:</span>
+                        <button class="chip-btn active" id="btn-sub-male" data-subject="male">🧍 Male</button>
+                        <button class="chip-btn" id="btn-sub-desk" data-subject="desk">💻 Desk</button>
+                        <button class="chip-btn" id="btn-sub-female" data-subject="female">👩 Female</button>
+                        <button class="chip-btn" id="btn-sub-custom">📁 Custom Photo</button>
+                        <input type="file" id="custom-photo-input" accept="image/*" hidden>
+                    </div>
+
+                    <div class="selector-group">
+                        <span class="btn-group-label">Garment:</span>
+                        <button class="chip-btn active" id="btn-gar-tshirt" data-garment="tshirt">👕 T-Shirt</button>
+                        <button class="chip-btn" id="btn-gar-shirt" data-garment="formal_shirt">👔 Formal Shirt</button>
+                        <button class="chip-btn" id="btn-gar-hoodie" data-garment="hoodie">🧥 Hoodie</button>
+                        <button class="chip-btn" id="btn-gar-jacket" data-garment="jacket">🦺 Jacket</button>
+                        <button class="chip-btn" id="btn-gar-custom">📁 Custom PNG</button>
+                        <input type="file" id="custom-garment-input" accept="image/*" hidden>
+                    </div>
+                </div>
+
+                <!-- Display Viewport -->
+                <div id="viewport-container">
+                    <img id="subject-img" src="/samples/test_person_male.jpg" alt="Calibration subject">
+                    <canvas id="skeleton-canvas"></canvas>
+                    <canvas id="webgl-canvas"></canvas>
+
+                    <!-- HUD Overlays -->
+                    <div class="viewport-hud">
+                        <div class="hud-pill">
+                            <label class="hud-toggle">
+                                <input type="checkbox" id="toggle-skeleton" checked>
+                                <span>Show Skeleton Tracking</span>
+                            </label>
+                            <label class="hud-toggle" style="margin-left: 12px;">
+                                <input type="checkbox" id="toggle-wireframe">
+                                <span>Wireframe Mesh</span>
+                            </label>
+                        </div>
+
+                        <div class="hud-pill">
+                            <span>Opacity:</span>
+                            <input type="range" id="slider-opacity" min="0.05" max="1" step="0.05" value="1.0" style="width: 90px;" class="control-slider">
+                            <span id="val-opacity" style="font-family: monospace; font-size: 11px;">1.00</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right: Manual Tuning Controls -->
+            <aside id="tuning-sidebar">
+                <div class="panel-header">
+                    <h2>Manual Transformation Controls</h2>
+                    <div class="action-row">
+                        <button class="btn-secondary" id="btn-reset-auto" title="Reset sliders to auto-detected pose values">🔄 Auto Values</button>
+                        <button class="btn-primary" id="btn-save-combo" title="Save these values for the active subject + garment combination">💾 Save Preset</button>
+                    </div>
+                </div>
+
+                <!-- Group 1: Position -->
+                <div class="slider-group">
+                    <div class="group-title">
+                        <span>📍 Position (World Units)</span>
+                        <span id="pos-summary" style="font-size: 10px; color: var(--text-muted); font-family: monospace;"></span>
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Position X (Horizontal)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-pos-x" step="0.005" class="control-input">
+                                <span class="control-unit">m</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-pos-x" min="-1.0" max="1.0" step="0.005" class="control-slider">
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Position Y (Height: Collar to Waist)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-pos-y" step="0.005" class="control-input">
+                                <span class="control-unit">m</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-pos-y" min="-1.5" max="1.5" step="0.005" class="control-slider">
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Position Z (Depth Offset)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-pos-z" step="0.005" class="control-input">
+                                <span class="control-unit">m</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-pos-z" min="-0.5" max="0.8" step="0.005" class="control-slider">
+                    </div>
+                </div>
+
+                <!-- Group 2: Scale & Proportions -->
+                <div class="slider-group">
+                    <div class="group-title">
+                        <span>📐 Scale & Proportions</span>
+                        <label class="hud-toggle" style="font-size: 10px; text-transform: none; color: var(--text-secondary);">
+                            <input type="checkbox" id="toggle-lock-aspect">
+                            <span>Lock Aspect Ratio</span>
+                        </label>
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Scale X (Chest Width)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-scale-x" step="0.01" class="control-input">
+                                <span class="control-unit">x</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-scale-x" min="0.2" max="2.5" step="0.01" class="control-slider">
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Scale Y (Torso Height)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-scale-y" step="0.01" class="control-input">
+                                <span class="control-unit">x</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-scale-y" min="0.2" max="2.5" step="0.01" class="control-slider">
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Scale Z (Thickness / Curvature)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-scale-z" step="0.01" class="control-input">
+                                <span class="control-unit">x</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-scale-z" min="0.1" max="2.0" step="0.01" class="control-slider">
+                    </div>
+                </div>
+
+                <!-- Group 3: Rotation -->
+                <div class="slider-group">
+                    <div class="group-title">
+                        <span>🔄 3D Rotation (Degrees)</span>
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Yaw (Turn Left / Right)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-rot-yaw" step="0.5" class="control-input">
+                                <span class="control-unit">°</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-rot-yaw" min="-90" max="90" step="0.5" class="control-slider">
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Pitch (Tilt Forward / Back)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-rot-pitch" step="0.5" class="control-input">
+                                <span class="control-unit">°</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-rot-pitch" min="-45" max="45" step="0.5" class="control-slider">
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Roll (Shoulder Tilt)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-rot-roll" step="0.5" class="control-input">
+                                <span class="control-unit">°</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-rot-roll" min="-45" max="45" step="0.5" class="control-slider">
+                    </div>
+                </div>
+
+                <!-- Group 4: Sleeves Articulation -->
+                <div class="slider-group">
+                    <div class="group-title">
+                        <span>💪 Sleeve Drape & Articulation</span>
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Left Sleeve Angle (Viewer Right)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-arm-left" step="1" class="control-input">
+                                <span class="control-unit">°</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-arm-left" min="-75" max="75" step="1" class="control-slider">
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Right Sleeve Angle (Viewer Left)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-arm-right" step="1" class="control-input">
+                                <span class="control-unit">°</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-arm-right" min="-75" max="75" step="1" class="control-slider">
+                    </div>
+                </div>
+
+                <!-- Group 5: Camera & Perspective -->
+                <div class="slider-group">
+                    <div class="group-title">
+                        <span>🎥 Camera & Perspective</span>
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Field of View (FOV)</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-cam-fov" step="1" class="control-input">
+                                <span class="control-unit">°</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-cam-fov" min="25" max="85" step="1" class="control-slider">
+                    </div>
+
+                    <div class="control-item">
+                        <div class="control-label-row">
+                            <span class="control-name">Camera Distance Z</span>
+                            <div class="control-value-box">
+                                <input type="number" id="num-cam-dist" step="0.05" class="control-input">
+                                <span class="control-unit">m</span>
+                            </div>
+                        </div>
+                        <input type="range" id="slider-cam-dist" min="1.5" max="5.5" step="0.05" class="control-slider">
+                    </div>
+                </div>
+
+                <!-- Diagnostics Comparison Table -->
+                <div class="diagnostics-box">
+                    <div class="group-title" style="margin-bottom: 8px;">
+                        <span>📊 Comparison (Auto vs Manual)</span>
+                        <button class="btn-secondary" id="btn-copy-diagnostics" style="padding: 2px 8px; font-size: 10px;">📋 Copy Table</button>
+                    </div>
+
+                    <table class="diagnostics-table">
+                        <thead>
+                            <tr>
+                                <th>Param</th>
+                                <th>Auto</th>
+                                <th>Manual</th>
+                                <th>Delta</th>
+                            </tr>
+                        </thead>
+                        <tbody id="diagnostics-rows">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Presets & Export Deck -->
+                <div class="presets-card">
+                    <div class="group-title" style="margin-bottom: 4px;">
+                        <span>💾 Calibration Presets</span>
+                        <button class="btn-secondary" id="btn-export-all" style="padding: 2px 8px; font-size: 10px;">Export All JSON</button>
+                    </div>
+                    <div class="presets-chips" id="presets-chips">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Export JSON Modal -->
+        <div class="modal-overlay" id="export-modal">
+            <div class="modal-box">
+                <div class="modal-header">
+                    <h3 style="font-size: 14px;">Calibration Dataset Export</h3>
+                    <button class="btn-secondary" id="btn-close-modal">✕</button>
+                </div>
+                <div class="modal-body">
+                    <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">
+                        Copy this JSON and send it in chat. It contains your exact manual alignments for all subjects and garments:
+                    </p>
+                    <textarea class="json-textarea" id="json-export-text" readonly></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-primary" id="btn-copy-json">📋 Copy to Clipboard</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MediaPipe Tasks-Vision -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm/vision_wasm_internal.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18"></script>
+
+    <!-- Calibration Controller Module -->
+    <script type="module" src="/js/calibrate.js?v=7.0"></script>
+</body>
+</html>
