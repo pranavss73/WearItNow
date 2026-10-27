@@ -99,15 +99,28 @@ export class BodyTracker {
             }
             if (ImageSegmenterClass) {
                 const segmenterModelUrl = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.task";
-                this.segmenter = await ImageSegmenterClass.createFromOptions(wasmResolver, {
-                    baseOptions: {
-                        modelAssetPath: segmenterModelUrl,
-                        delegate: "GPU",
-                    },
-                    runningMode: "IMAGE",
-                    outputCategoryMask: false,
-                    outputConfidenceMasks: true,
-                });
+                try {
+                    this.segmenter = await ImageSegmenterClass.createFromOptions(wasmResolver, {
+                        baseOptions: {
+                            modelAssetPath: segmenterModelUrl,
+                            delegate: "GPU",
+                        },
+                        runningMode: "IMAGE",
+                        outputCategoryMask: false,
+                        outputConfidenceMasks: true,
+                    });
+                } catch (gpuErr) {
+                    console.warn("GPU selfie segmenter failed, falling back to CPU:", gpuErr);
+                    this.segmenter = await ImageSegmenterClass.createFromOptions(wasmResolver, {
+                        baseOptions: {
+                            modelAssetPath: segmenterModelUrl,
+                            delegate: "CPU",
+                        },
+                        runningMode: "IMAGE",
+                        outputCategoryMask: false,
+                        outputConfidenceMasks: true,
+                    });
+                }
                 this.segmenterReady = true;
                 console.log("✓ Body edge silhouette segmenter ready");
             }

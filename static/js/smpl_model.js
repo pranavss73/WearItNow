@@ -148,7 +148,7 @@ export class SMPLModelFactory {
      * Single contiguous mesh with front panel, back panel, and seamlessly integrated sleeves.
      */
     static _initSMPLGarmentGeometry() {
-        // Unified Torso & Seamless Sleeve Grid
+        // Unified Anatomical Pattern Grid
         const Ny = 36;
         const Nx = 36;
         const numVerts = (Ny + 1) * (Nx + 1);
@@ -156,29 +156,56 @@ export class SMPLModelFactory {
         const uvs = new Float32Array(numVerts * 2);
         const indices = [];
 
+        // Grid partition:
+        // j_armpit = 22 corresponds to v ≈ 0.61 (armpit level)
+        // i_leftArmhole = 9 corresponds to u = 0.25 (left armhole seam)
+        // i_rightArmhole = 27 corresponds to u = 0.75 (right armhole seam)
+        const j_armpit = 22;
+        const i_leftArmhole = 9;
+        const i_rightArmhole = 27;
+
         for (let j = 0; j <= Ny; j++) {
             const v = j / Ny;
             for (let i = 0; i <= Nx; i++) {
-                const u = i / Nx;
                 const idx = j * (Nx + 1) + i;
 
                 // Dedicated Garment UV Layout:
-                // Maps central chest region [0.28, 0.72] x [0.10, 0.88]
-                uvs[idx * 2] = 0.28 + u * (0.72 - 0.28);
-                uvs[idx * 2 + 1] = 0.10 + v * (0.88 - 0.10);
+                // Torso region [9, 27] maps to [0.28, 0.72] (centered chest graphics)
+                // Left sleeve [0, 9] maps to [0.10, 0.28]
+                // Right sleeve [27, 36] maps to [0.72, 0.90]
+                let u_tex;
+                if (i < i_leftArmhole) {
+                    const s = i / i_leftArmhole;
+                    u_tex = 0.10 + s * (0.28 - 0.10);
+                } else if (i <= i_rightArmhole) {
+                    const s = (i - i_leftArmhole) / (i_rightArmhole - i_leftArmhole);
+                    u_tex = 0.28 + s * (0.72 - 0.28);
+                } else {
+                    const s = (i - i_rightArmhole) / (Nx - i_rightArmhole);
+                    u_tex = 0.72 + s * (0.90 - 0.72);
+                }
+
+                uvs[idx * 2] = u_tex;
+                uvs[idx * 2 + 1] = 0.06 + v * (0.92 - 0.06);
             }
         }
 
         for (let j = 0; j < Ny; j++) {
-            for (let i = 0; i < Nx; i++) {
+            // Below armpits (torso only): only generate quads for torso columns [i_leftArmhole, i_rightArmhole]
+            // Above armpits: generate quads across all columns (sleeves + upper chest)
+            // This eliminates empty corner webbing under the arms (zero batwings/zero flying squirrel!)
+            const minI = (j < j_armpit) ? i_leftArmhole : 0;
+            const maxI = (j < j_armpit) ? i_rightArmhole : Nx;
+
+            for (let i = minI; i < maxI; i++) {
                 const a = j * (Nx + 1) + i;
                 const b = j * (Nx + 1) + (i + 1);
                 const c = (j + 1) * (Nx + 1) + (i + 1);
                 const d = (j + 1) * (Nx + 1) + i;
 
-                // Counter-clockwise front-facing winding
-                indices.push(a, d, b);
-                indices.push(b, d, c);
+                // Front-facing counter-clockwise winding
+                indices.push(a, b, d);
+                indices.push(b, c, d);
             }
         }
 
@@ -217,8 +244,8 @@ export class SMPLModelFactory {
             const c = (i + 1) * 2 + 1;
             const d = (i + 1) * 2;
 
-            indices.push(a, d, b);
-            indices.push(b, d, c);
+            indices.push(a, b, d);
+            indices.push(b, c, d);
         }
 
         const geo = new THREE.BufferGeometry();
@@ -258,14 +285,16 @@ export class SMPLModelFactory {
         const C_rightArmpit = to3D(cage.rightArmpit);
         const C_leftElbow = to3D(cage.leftElbow);
         const C_rightElbow = to3D(cage.rightElbow);
-        const C_leftWrist = to3D(cage.leftWrist);
-        const C_rightWrist = to3D(cage.rightWrist);
+        const C_suprasternal = to3D(cage.suprasternalNotch);
+        const C_neck = to3D(cage.neck);
+        const C_clav_L = to3D(cage.clavicleLeft);
+        const C_clav_R = to3D(cage.clavicleRight);
 
         const sw = Math.max(0.20, C_ls.distanceTo(C_rs));
 
         // 1. SOLVE SMPL BODY KINEMATIC FRAME
         const C_midShoulder = C_ls.clone().lerp(C_rs, 0.5);
-        const u_shoulder = C_ls.clone().sub(C_rs).normalize();
+        const u_shoulder = C_rs.clone().sub(C_ls).normalize(); // Points left to right (+X)
 
         const V_spine = C_midShoulder.clone().sub(C_solar);
         const v_up = (V_spine.lengthSq() > 0.001) ? V_spine.clone().normalize() : new THREE.Vector3(0, 1, 0);
@@ -273,13 +302,26 @@ export class SMPLModelFactory {
         let n_chest = v_up.clone().cross(u_shoulder).normalize();
         if (n_chest.z < 0) n_chest.negate();
         if (n_chest.lengthSq() < 0.5) n_chest = new THREE.Vector3(0, 0, 1);
-        const u_lat = n_chest.clone().cross(v_up).normalize();
 
-        // Arm vectors
+        // Lateral vectors in coronal plane
+        const u_lat_R = n_chest.clone().cross(v_up).normalize(); // Points towards screen-right (+X)
+        const u_lat_L = u_lat_R.clone().negate();                 // Points towards screen-left (-X)
+
+        // Upper arm vectors and directions (stabilized against forearm crossings)
         const V_arm_L = C_leftElbow.clone().sub(C_ls);
         const V_arm_R = C_rightElbow.clone().sub(C_rs);
-        const dir_arm_L = V_arm_L.clone().normalize();
-        const dir_arm_R = V_arm_R.clone().normalize();
+        let dir_arm_L = V_arm_L.clone().normalize();
+        let dir_arm_R = V_arm_R.clone().normalize();
+
+        if (V_arm_L.length() < 0.08 || dir_arm_L.lengthSq() < 0.5) {
+            dir_arm_L = new THREE.Vector3(-0.707, -0.707, 0).normalize();
+        }
+        if (V_arm_R.length() < 0.08 || dir_arm_R.lengthSq() < 0.5) {
+            dir_arm_R = new THREE.Vector3(0.707, -0.707, 0).normalize();
+        }
+
+        // Short sleeve length along upper arm (mid-bicep)
+        const sleeveLength = sw * 0.22;
 
         // 2. RECONSTRUCT 3D SMPL BODY SURFACE (Digital Twin)
         const bodyPos = bodyGeo.attributes.position.array;
@@ -295,26 +337,47 @@ export class SMPLModelFactory {
                 // Pelvis & lower abdomen
                 const t = v / 0.35;
                 centerPt = C_hipCenter.clone().lerp(C_navel, t);
-                rx = sw * 0.42 * (1.0 - 0.08 * t);
+                rx = sw * 0.44 * (1.0 - 0.06 * t);
                 rz = sw * 0.22;
             } else if (v <= 0.70) {
                 // Waist, solar plexus, and ribcage
                 const t = (v - 0.35) / 0.35;
                 centerPt = C_navel.clone().lerp(C_solar, t);
-                rx = sw * (0.38 + 0.08 * t);
+                rx = sw * (0.41 + 0.07 * t);
                 rz = sw * (0.22 + 0.04 * t);
-            } else if (v <= 0.90) {
+            } else if (v <= 0.88) {
                 // Chest & Shoulders
-                const t = (v - 0.70) / 0.20;
+                const t = (v - 0.70) / 0.18;
                 centerPt = C_solar.clone().lerp(C_midShoulder, t);
-                rx = sw * (0.46 + 0.04 * (1.0 - t));
-                rz = sw * 0.25;
+                rx = sw * (0.42 + 0.04 * (1.0 - t));
+                rz = sw * 0.22;
             } else {
-                // Neck column
-                const t = (v - 0.90) / 0.10;
-                centerPt = C_midShoulder.clone().addScaledVector(v_up, sw * 0.12 * t);
-                rx = sw * 0.16;
-                rz = sw * 0.16;
+                // Slender Neck Column
+                const t = (v - 0.88) / 0.12;
+                centerPt = C_midShoulder.clone().addScaledVector(v_up, sw * 0.075 * t);
+                rx = sw * 0.12;
+                rz = sw * 0.12;
+            }
+
+            // Adapt body radius to silhouette width if available
+            const bounds = poseData.silhouetteBounds;
+            if (bounds && bounds.length >= 4 && v < 0.85) {
+                const approxNormY = 0.5 - (centerPt.y / visibleHeight);
+                let bestSlice = null;
+                let minDist = 999;
+                for (let k = 0; k < bounds.length; k++) {
+                    const d = Math.abs(bounds[k].y - approxNormY);
+                    if (d < minDist) {
+                        minDist = d;
+                        bestSlice = bounds[k];
+                    }
+                }
+                if (bestSlice && minDist < 0.12) {
+                    const silW = (bestSlice.right - bestSlice.left) * visibleWidth;
+                    if (silW > sw * 0.40 && silW < sw * 1.60) {
+                        rx = rx * 0.40 + (silW * 0.46) * 0.60;
+                    }
+                }
             }
 
             for (let i = 0; i <= N_circ; i++) {
@@ -322,9 +385,8 @@ export class SMPLModelFactory {
                 const cosT = Math.cos(theta);
                 const sinT = Math.sin(theta);
 
-                // Body surface point with lateral (rx) and anterior-posterior (rz) radius
                 const p = centerPt.clone()
-                    .addScaledVector(u_lat, rx * cosT)
+                    .addScaledVector(u_lat_R, rx * cosT)
                     .addScaledVector(n_chest, rz * sinT);
 
                 bodyPos[bIdx * 3] = p.x;
@@ -337,126 +399,194 @@ export class SMPLModelFactory {
         bodyGeo.attributes.position.needsUpdate = true;
         bodyGeo.computeVertexNormals();
 
-        // 3. DEFORM UNIFIED SURFACE-BOUND 3D GARMENT (Zero-Gap, Continuous Topology)
+        // 3. DEFORM UNIFIED SURFACE-BOUND 3D GARMENT (Zero-Batwing Pattern with Silhouette Snapping)
         const garmentPos = garmentGeo.attributes.position.array;
         const Ny = 36;
         const Nx = 36;
-        let gIdx = 0;
+        const j_armpit = 22;
+        const i_leftArmhole = 9;
+        const i_rightArmhole = 27;
+        const v_armpit = j_armpit / Ny; // ≈ 0.611
 
-        // Anatomical collar landmarks on the SMPL body
-        const collarHalfWidth = sw * 0.165;
-        const P_trap_L = C_midShoulder.clone()
-            .addScaledVector(u_lat, collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.028)
-            .addScaledVector(n_chest, -sw * 0.012);
-
-        const P_trap_R = C_midShoulder.clone()
-            .addScaledVector(u_lat, -collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.028)
-            .addScaledVector(n_chest, -sw * 0.012);
-
-        const P_collarDip = C_midShoulder.clone()
-            .addScaledVector(v_up, -sw * 0.020)
-            .addScaledVector(n_chest, sw * 0.035);
-
-        // Shoulder points
+        // Shoulder points (acromion processes)
         const P_shoulder_L = C_ls.clone();
         const P_shoulder_R = C_rs.clone();
+        const L_armpit = C_leftArmpit.clone();
+        const R_armpit = C_rightArmpit.clone();
 
-        // Sleeve endpoints (short sleeve draping along upper arm)
-        const sleeveFrac = 0.44;
-        const P_sleeveEnd_L = C_ls.clone().addScaledVector(V_arm_L, sleeveFrac);
-        const P_sleeveEnd_R = C_rs.clone().addScaledVector(V_arm_R, sleeveFrac);
+        // Collar landmarks (anchored to suprasternal notch and clavicles for posture stability)
+        const P_collarDip = C_suprasternal.clone()
+            .addScaledVector(n_chest, sw * 0.035)
+            .addScaledVector(v_up, -sw * 0.010);
 
-        const getGarmentTop = (s) => {
-            const absS = Math.abs(s);
-            if (absS <= 0.34) {
-                // Natural circular crew-neck dip
-                const tau = absS / 0.34;
-                const blend = 1.0 - Math.cos(tau * (Math.PI / 2.0));
-                const trap = (s >= 0) ? P_trap_L : P_trap_R;
+        const P_trap_L = C_clav_L.clone()
+            .addScaledVector(v_up, sw * 0.030)
+            .addScaledVector(n_chest, -sw * 0.010);
+
+        const P_trap_R = C_clav_R.clone()
+            .addScaledVector(v_up, sw * 0.030)
+            .addScaledVector(n_chest, -sw * 0.010);
+
+        // Top edge boundary function getGarmentTop(u_torso) for u_torso in [0, 1]
+        // u_torso: 0 is left armhole seam, 0.5 is collar center, 1 is right armhole seam
+        const getGarmentTop = (u_t) => {
+            if (u_t <= 0.28) {
+                // Left shoulder line: shoulder tip to trapezius peak
+                const lambda = u_t / 0.28;
+                return P_shoulder_L.clone().lerp(P_trap_L, lambda);
+            } else if (u_t <= 0.72) {
+                // Crew-neck scoop: cosine curve from left trap dipping to center and back to right trap
+                const tau = (u_t - 0.50) / 0.22; // -1.0 to +1.0
+                const blend = 1.0 - Math.cos(Math.abs(tau) * (Math.PI / 2.0));
+                const trap = (tau < 0) ? P_trap_L : P_trap_R;
                 return P_collarDip.clone().lerp(trap, blend);
-            } else if (absS <= 0.78) {
-                // Shoulder line across trapezius to shoulder tip
-                const lambda = (absS - 0.34) / (0.78 - 0.34);
-                const trap = (s >= 0) ? P_trap_L : P_trap_R;
-                const sh = (s >= 0) ? P_shoulder_L : P_shoulder_R;
-                return trap.clone().lerp(sh, lambda);
             } else {
-                // Integrated sleeve cap extending down the arm (Top of sleeve)
-                const lambda = (absS - 0.78) / (1.0 - 0.78);
-                const sh = (s >= 0) ? P_shoulder_L : P_shoulder_R;
-                const slEnd = (s >= 0) ? P_sleeveEnd_L : P_sleeveEnd_R;
-                return sh.clone().lerp(slEnd, lambda);
+                // Right shoulder line: trapezius peak to shoulder tip
+                const lambda = (u_t - 0.72) / 0.28;
+                return P_trap_R.clone().lerp(P_shoulder_R, lambda);
             }
         };
 
+        let gIdx = 0;
         for (let j = 0; j <= Ny; j++) {
-            const v = j / Ny; // 0 (hem) to 1.0 (shoulders)
+            const v = j / Ny;
 
-            let L, C, R;
-            if (v <= 0.35) {
-                const t = v / 0.35;
-                L = C_lh.clone().lerp(to3D(cage.leftWaist), t);
-                C = C_hipCenter.clone().lerp(C_navel, t);
-                R = C_rh.clone().lerp(to3D(cage.rightWaist), t);
-            } else if (v <= 0.70) {
-                const t = (v - 0.35) / 0.35;
-                L = to3D(cage.leftWaist).lerp(C_leftArmpit, t);
-                C = C_navel.clone().lerp(C_solar, t);
-                R = to3D(cage.rightWaist).lerp(C_rightArmpit, t);
-            } else {
-                const t = (v - 0.70) / 0.30;
-                L = C_leftArmpit.clone().lerp(P_sleeveEnd_L, t);
-                C = C_solar.clone().lerp(P_collarDip, t);
-                R = C_rightArmpit.clone().lerp(P_sleeveEnd_R, t);
-            }
+            if (j < j_armpit) {
+                // ==========================================
+                // LOWER & MID TORSO (Hem up to Armpits)
+                // ==========================================
+                const t_torso = v / v_armpit; // 0.0 (hem) to 1.0 (armpits)
 
-            for (let i = 0; i <= Nx; i++) {
-                const u = i / Nx;
-                const s = (u - 0.5) * 2.0; // -1 to +1
-
-                let p;
-                if (v <= 0.70) {
-                    if (s < 0) {
-                        const tx = s + 1.0;
-                        p = R.clone().multiplyScalar(1 - tx).addScaledVector(C, tx);
-                    } else {
-                        const tx = s;
-                        p = C.clone().multiplyScalar(1 - tx).addScaledVector(L, tx);
-                    }
+                // Spine center point
+                let C;
+                if (t_torso <= 0.50) {
+                    C = C_hipCenter.clone().lerp(C_navel, t_torso / 0.50);
                 } else {
-                    const t = (v - 0.70) / 0.30;
-                    let P_chest;
-                    if (s < 0) {
-                        const tx = s + 1.0;
-                        P_chest = R.clone().multiplyScalar(1 - tx).addScaledVector(C, tx);
-                    } else {
-                        const tx = s;
-                        P_chest = C.clone().multiplyScalar(1 - tx).addScaledVector(L, tx);
+                    C = C_navel.clone().lerp(C_solar, (t_torso - 0.50) / 0.50);
+                }
+
+                // Baseline anatomical body half-width (ensures full coverage even if segmentation pauses)
+                const baseHalfW = sw * (0.45 - 0.02 * Math.sin(t_torso * Math.PI));
+                let L = C.clone().addScaledVector(u_lat_L, baseHalfW);
+                let R = C.clone().addScaledVector(u_lat_R, baseHalfW);
+
+                // Silhouette body edge snapping (stretch to real body edges & cut overshoots)
+                const bounds = poseData.silhouetteBounds;
+                if (bounds && bounds.length >= 4) {
+                    const approxNormY = 0.5 - (C.y / visibleHeight);
+                    let bestSlice = null;
+                    let minDist = 999;
+                    for (let k = 0; k < bounds.length; k++) {
+                        const d = Math.abs(bounds[k].y - approxNormY);
+                        if (d < minDist) {
+                            minDist = d;
+                            bestSlice = bounds[k];
+                        }
                     }
-                    const P_top = getGarmentTop(s);
-                    p = P_chest.clone().lerp(P_top, t);
+
+                    if (bestSlice && minDist < 0.12) {
+                        const silLeft3D = (bestSlice.left - 0.5) * visibleWidth;
+                        const silRight3D = (bestSlice.right - 0.5) * visibleWidth;
+
+                        // Clamping envelope: prevents outstretched arms from ballooning the torso,
+                        // while ensuring it stretches to the actual body edge
+                        const maxHalfW = sw * (0.52 + 0.06 * (1.0 - t_torso));
+                        const minHalfW = sw * 0.35;
+                        const targetLeftX = Math.max(C.x - maxHalfW, Math.min(C.x - minHalfW, silLeft3D - sw * 0.02));
+                        const targetRightX = Math.min(C.x + maxHalfW, Math.max(C.x + minHalfW, silRight3D + sw * 0.02));
+
+                        L.x = targetLeftX;
+                        R.x = targetRightX;
+                    }
                 }
 
-                // Forward chest and pectoral dome volume on SMPL surface
-                const chestCurve = Math.max(0, 1.0 - s * s);
-                const vProfile = Math.sin(Math.min(1.0, v * 1.25) * Math.PI);
-                const fabricOffset = sw * 0.015; // 15mm fabric surface offset
-                const depth = fabricOffset + sw * 0.12 * chestCurve * (0.35 + 0.65 * vProfile);
+                for (let i = 0; i <= Nx; i++) {
+                    let p;
+                    if (i < i_leftArmhole) {
+                        // Unused corner under left sleeve (unindexed, placed safely at left flank)
+                        p = L.clone();
+                    } else if (i <= i_rightArmhole) {
+                        // Active torso front panel
+                        const u_torso = (i - i_leftArmhole) / (i_rightArmhole - i_leftArmhole); // 0 (L) to 1 (R)
+                        if (u_torso < 0.5) {
+                            const tx = u_torso / 0.5;
+                            p = L.clone().multiplyScalar(1 - tx).addScaledVector(C, tx);
+                        } else {
+                            const tx = (u_torso - 0.5) / 0.5;
+                            p = C.clone().multiplyScalar(1 - tx).addScaledVector(R, tx);
+                        }
 
-                p.addScaledVector(n_chest, depth);
+                        // Anatomical belly/torso roundness
+                        const bellyCurve = Math.sin(u_torso * Math.PI);
+                        p.addScaledVector(n_chest, sw * 0.035 * bellyCurve + sw * 0.020);
+                    } else {
+                        // Unused corner under right sleeve (unindexed, placed safely at right flank)
+                        p = R.clone();
+                    }
 
-                // Flank curvature (wraps around ribcage)
-                if (Math.abs(s) > 0.65) {
-                    const flankW = (Math.abs(s) - 0.65) / 0.35;
-                    p.addScaledVector(n_chest, -sw * 0.05 * flankW * flankW);
+                    garmentPos[gIdx * 3] = p.x;
+                    garmentPos[gIdx * 3 + 1] = p.y;
+                    garmentPos[gIdx * 3 + 2] = p.z;
+                    gIdx++;
                 }
 
-                garmentPos[gIdx * 3] = p.x;
-                garmentPos[gIdx * 3 + 1] = p.y;
-                garmentPos[gIdx * 3 + 2] = p.z;
-                gIdx++;
+            } else {
+                // ==========================================
+                // UPPER REGION (Chest, Shoulders & Sleeves)
+                // ==========================================
+                const t_upper = (v - v_armpit) / (1.0 - v_armpit); // 0.0 (armpits) to 1.0 (shoulders)
+
+                for (let i = 0; i <= Nx; i++) {
+                    let p;
+
+                    if (i < i_leftArmhole) {
+                        // LEFT SLEEVE: Extends smoothly along left arm vector
+                        const sigma = (i_leftArmhole - i) / i_leftArmhole; // 0 at armhole seam, 1 at sleeve cuff
+                        const P_top = P_shoulder_L.clone().addScaledVector(dir_arm_L, sleeveLength * sigma);
+                        const P_under = L_armpit.clone().addScaledVector(dir_arm_L, sleeveLength * 0.88 * sigma);
+                        p = P_under.clone().lerp(P_top, t_upper);
+
+                        // 3D sleeve roundness around upper arm
+                        const armPuff = Math.sin(t_upper * Math.PI) * (sw * 0.06) * Math.sin(sigma * Math.PI * 0.5);
+                        p.addScaledVector(n_chest, armPuff + sw * 0.020);
+
+                    } else if (i <= i_rightArmhole) {
+                        // UPPER CHEST & YOKE: Contoured from armpit slice to crewneck collar line
+                        const u_torso = (i - i_leftArmhole) / (i_rightArmhole - i_leftArmhole); // 0 (L) to 1 (R)
+
+                        let P_chest;
+                        if (u_torso < 0.5) {
+                            const tx = u_torso / 0.5;
+                            P_chest = L_armpit.clone().multiplyScalar(1 - tx).addScaledVector(C_solar, tx);
+                        } else {
+                            const tx = (u_torso - 0.5) / 0.5;
+                            P_chest = C_solar.clone().multiplyScalar(1 - tx).addScaledVector(R_armpit, tx);
+                        }
+
+                        const P_top = getGarmentTop(u_torso);
+                        p = P_chest.clone().lerp(P_top, t_upper);
+
+                        // Forward pectoral volume
+                        const chestCurve = Math.sin(u_torso * Math.PI);
+                        p.addScaledVector(n_chest, sw * 0.045 * chestCurve * (1.0 - 0.30 * t_upper) + sw * 0.020);
+
+                    } else {
+                        // RIGHT SLEEVE: Extends smoothly along right arm vector
+                        const sigma = (i - i_rightArmhole) / (Nx - i_rightArmhole); // 0 at armhole seam, 1 at sleeve cuff
+                        const P_top = P_shoulder_R.clone().addScaledVector(dir_arm_R, sleeveLength * sigma);
+                        const P_under = R_armpit.clone().addScaledVector(dir_arm_R, sleeveLength * 0.88 * sigma);
+                        p = P_under.clone().lerp(P_top, t_upper);
+
+                        // 3D sleeve roundness around upper arm
+                        const armPuff = Math.sin(t_upper * Math.PI) * (sw * 0.06) * Math.sin(sigma * Math.PI * 0.5);
+                        p.addScaledVector(n_chest, armPuff + sw * 0.020);
+                    }
+
+                    garmentPos[gIdx * 3] = p.x;
+                    garmentPos[gIdx * 3 + 1] = p.y;
+                    garmentPos[gIdx * 3 + 2] = p.z;
+                    gIdx++;
+                }
             }
         }
 
@@ -466,18 +596,17 @@ export class SMPLModelFactory {
         // 4. DEFORM COLLAR BAND ON SMPL NECK ROOT
         const collarPos = collarGeo.attributes.position.array;
         const segments = 32;
-        const collarThickness = sw * 0.020;
+        const collarThickness = sw * 0.018;
         let cIdx = 0;
 
         for (let i = 0; i <= segments; i++) {
-            const tau = (i / segments) * 2.0 - 1.0; // -1 to +1
-            const trap = (tau >= 0) ? P_trap_L : P_trap_R;
+            const tau = (i / segments) * 2.0 - 1.0; // -1 (left) to +1 (right)
+            const trap = (tau < 0) ? P_trap_L : P_trap_R;
             const blend = 1.0 - Math.cos(Math.abs(tau) * (Math.PI / 2.0));
 
             const innerPt = P_collarDip.clone().lerp(trap, blend);
             const outerPt = innerPt.clone()
                 .addScaledVector(v_up, -collarThickness * (1.0 - 0.35 * tau * tau))
-                .addScaledVector(u_lat, tau * collarThickness * 0.30)
                 .addScaledVector(n_chest, 0.006);
 
             collarPos[cIdx * 3] = innerPt.x;
