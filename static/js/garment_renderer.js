@@ -15,6 +15,7 @@
 
 import * as THREE from 'three';
 import { GarmentModelFactory } from './garment_models.js?v=11.0';
+import { SMPLModelFactory } from './smpl_model.js?v=11.0';
 
 /**
  * Empirical Ground-Truth Presets (Calibrated by User)
@@ -137,8 +138,31 @@ export class GarmentRenderer {
 
         this.aspectRatio = 4 / 3;
         this.animationTime = 0;
+        this.engineMode = 'landmark'; // 'landmark' | 'smpl'
+        this.showSMPLBody = true;
 
         this._initThree();
+    }
+
+    /**
+     * Switch try-on deformation engine ('landmark' vs 'smpl')
+     */
+    setEngineMode(mode) {
+        if (this.engineMode === mode) return;
+        this.engineMode = mode;
+        if (this.currentGarment) {
+            this.setGarment(this.currentType || 'tshirt', this.currentTexture);
+        }
+    }
+
+    /**
+     * Toggle visibility of SMPL 3D human body digital twin
+     */
+    toggleSMPLBody(show) {
+        this.showSMPLBody = Boolean(show);
+        if (this.currentGarment && this.currentGarment.userData?.bodyMesh) {
+            this.currentGarment.userData.bodyMesh.visible = this.showSMPLBody;
+        }
     }
 
     /**
@@ -222,7 +246,14 @@ export class GarmentRenderer {
             this.currentTexture = texture;
         }
 
-        this.currentGarment = GarmentModelFactory.createGarment(type, this.currentTexture);
+        if (this.engineMode === 'smpl') {
+            this.currentGarment = SMPLModelFactory.createSMPLSystem(type, this.currentTexture);
+            if (this.currentGarment.userData?.bodyMesh) {
+                this.currentGarment.userData.bodyMesh.visible = Boolean(this.showSMPLBody);
+            }
+        } else {
+            this.currentGarment = GarmentModelFactory.createGarment(type, this.currentTexture);
+        }
         this.scene.add(this.currentGarment);
 
         this.isVisible = true;
@@ -263,8 +294,21 @@ export class GarmentRenderer {
         const opacityLerp = 0.22;
         this.currentOpacity += (this.targetOpacity - this.currentOpacity) * opacityLerp;
 
+        const isBodyPart = (node) => {
+            let cur = node;
+            while (cur && cur !== this.currentGarment) {
+                if (cur.name === 'smpl_body_mesh') return true;
+                cur = cur.parent;
+            }
+            return false;
+        };
+
         this.currentGarment.traverse((child) => {
             if (child.isMesh && child.material) {
+                if (isBodyPart(child)) {
+                    child.visible = Boolean(this.showSMPLBody);
+                    return;
+                }
                 child.material.opacity = this.currentOpacity;
                 child.visible = this.currentOpacity > 0.02;
             }
@@ -273,12 +317,20 @@ export class GarmentRenderer {
         if (poseData && poseData.shoulders && poseData.torso) {
             this.targetOpacity = this.isVisible ? 1.0 : 0.0;
 
-            // 1. FULL LANDMARK-ANCHORED MESH WARPING (Industry-standard anatomical deformation)
+            // 1. ANATOMICAL 3D DEFORMATION (Landmark Engine vs SMPL Human Mesh Recovery)
             if (poseData.bodyCage && this.currentGarment.userData?.updateDeformation) {
-                // Apply dynamic anatomical cage deformation directly to garment vertices
-                this.currentGarment.userData.updateDeformation(poseData.bodyCage, this.camera, {
-                    silhouetteBounds: poseData.silhouetteBounds
-                });
+                if (this.engineMode === 'smpl') {
+                    // SMPL Parametric 3D Human Mesh Recovery
+                    this.currentGarment.userData.updateDeformation(poseData, this.camera);
+                    if (this.currentGarment.userData?.bodyMesh) {
+                        this.currentGarment.userData.bodyMesh.visible = Boolean(this.showSMPLBody);
+                    }
+                } else {
+                    // Landmark-Anchored Deformer
+                    this.currentGarment.userData.updateDeformation(poseData.bodyCage, this.camera, {
+                        silhouetteBounds: poseData.silhouetteBounds
+                    });
+                }
 
                 // With landmark anchoring, vertices are already located at their exact 3D camera coordinates!
                 this.targetPos.set(0, 0, 0);

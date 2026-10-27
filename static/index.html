@@ -85,6 +85,16 @@
                         <button id="src-upload-person" class="source-btn" type="button" title="Upload custom photo of a person">📁 Custom Photo</button>
                         <input type="file" id="person-photo-input" accept="image/*" class="hidden">
                     </div>
+
+                    <div class="engine-toggle">
+                        <span class="engine-toggle-label">Engine:</span>
+                        <button id="engine-landmark" class="engine-btn active" type="button" title="18-point Anatomical Landmark Deformer">📐 Landmark Engine</button>
+                        <button id="engine-smpl" class="engine-btn" type="button" title="SMPL / HMR 2.0 3D Human Mesh Recovery Engine">🧬 SMPL Human Mesh</button>
+                        <label id="smpl-body-toggle-container" class="twin-toggle-label" style="display: none;" title="Toggle 3D SMPL Digital Twin holographic body cage">
+                            <input type="checkbox" id="smpl-show-body" checked>
+                            <span>Body Twin</span>
+                        </label>
+                    </div>
                 </div>
                 <div id="viewport">
                     <video id="camera-feed" class="hidden" autoplay playsinline muted></video>

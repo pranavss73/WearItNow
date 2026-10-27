@@ -69,6 +69,12 @@ class WearItNowApp {
         this.tryonBtn = document.getElementById('tryon-btn');
         this.stopBtn = document.getElementById('stop-btn');
 
+        // Deformation Engine controls
+        this.engineLandmarkBtn = document.getElementById('engine-landmark');
+        this.engineSmplBtn = document.getElementById('engine-smpl');
+        this.smplBodyToggleContainer = document.getElementById('smpl-body-toggle-container');
+        this.smplShowBodyCheckbox = document.getElementById('smpl-show-body');
+
         // Timing info
         this.timingInfo = document.getElementById('timing-info');
         this.timeClassify = document.getElementById('time-classify');
@@ -469,6 +475,57 @@ class WearItNowApp {
                 }
             });
         });
+
+        // 3D Deformation Engine switchers (Landmark vs SMPL)
+        if (this.engineLandmarkBtn) {
+            this.engineLandmarkBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.setEngineMode('landmark');
+            });
+        }
+        if (this.engineSmplBtn) {
+            this.engineSmplBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.setEngineMode('smpl');
+            });
+        }
+        if (this.smplShowBodyCheckbox) {
+            this.smplShowBodyCheckbox.addEventListener('change', (e) => {
+                if (this.renderer) {
+                    this.renderer.toggleSMPLBody(e.target.checked);
+                }
+            });
+        }
+    }
+
+    /**
+     * Switch try-on deformation engine ('landmark' vs 'smpl')
+     * @param {'landmark'|'smpl'} mode
+     */
+    setEngineMode(mode) {
+        if (!this.renderer) return;
+        this.renderer.setEngineMode(mode);
+
+        if (this.engineLandmarkBtn) {
+            this.engineLandmarkBtn.classList.toggle('active', mode === 'landmark');
+        }
+        if (this.engineSmplBtn) {
+            this.engineSmplBtn.classList.toggle('active', mode === 'smpl');
+        }
+        if (this.smplBodyToggleContainer) {
+            this.smplBodyToggleContainer.style.display = (mode === 'smpl') ? 'inline-flex' : 'none';
+        }
+
+        // If try-on active, re-project garment immediately
+        if (this.isTryOnActive) {
+            const activePose = (this.currentSource === 'still') ? this.stillPoseData : null;
+            if (activePose) {
+                const cat = this.processedData?.classification?.category || this.renderer?.currentType || 'tshirt';
+                activePose.subjectName = this.currentSubjectKey;
+                activePose.presetKey = `${this.currentSubjectKey}_${cat}`;
+                this.renderer.update(activePose, 0.016);
+            }
+        }
     }
 
     /**

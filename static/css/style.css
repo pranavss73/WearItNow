@@ -303,7 +303,9 @@ body {
 .viewport-controls {
     display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
     width: 100%;
     max-width: 960px;
     position: relative;
@@ -342,6 +344,68 @@ body {
     background: var(--gradient-primary);
     color: white;
     box-shadow: 0 2px 10px rgba(0, 212, 255, 0.25);
+}
+
+.engine-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 3px 6px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--glass-border);
+    position: relative;
+    z-index: 50;
+}
+
+.engine-toggle-label {
+    font-size: 0.70rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 0 4px;
+}
+
+.engine-btn {
+    padding: 0.35rem 0.85rem;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-full);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: all 0.2s var(--ease-out);
+}
+
+.engine-btn:hover {
+    color: var(--text-primary);
+}
+
+.engine-btn.active {
+    background: linear-gradient(135deg, #00d4ff 0%, #7928ca 100%);
+    color: white;
+    box-shadow: 0 2px 10px rgba(0, 212, 255, 0.3);
+}
+
+.twin-toggle-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #00d4ff;
+    cursor: pointer;
+    padding: 0 6px;
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    user-select: none;
+}
+
+.twin-toggle-label input[type="checkbox"] {
+    accent-color: #00d4ff;
+    cursor: pointer;
 }
 
 #viewport {
