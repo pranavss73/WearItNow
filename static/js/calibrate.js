@@ -5,7 +5,7 @@
  */
 
 import * as THREE from 'three';
-import { GarmentModelFactory } from './garment_models.js?v=10.0';
+import { GarmentModelFactory } from './garment_models.js?v=11.0';
 
 /**
  * Ground-Truth Calibrated Presets from Empirical Manual Tuning

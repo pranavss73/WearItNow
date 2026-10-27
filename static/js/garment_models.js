@@ -30,8 +30,8 @@ export class GarmentModelFactory {
         switch (type) {
             case 'hoodie':
                 return this._createDeformableGarment('hoodie', texture, {
-                    neckDrop: 0.075,
-                    neckWidth: 0.28,
+                    neckDrop: 0.028,
+                    neckWidth: 0.34,
                     depthMultiplier: 1.15,
                     sleeveLengthFraction: 0.96,
                     sleeveRadiusScale: 1.10,
@@ -39,8 +39,8 @@ export class GarmentModelFactory {
                 });
             case 'formal_shirt':
                 return this._createDeformableGarment('formal_shirt', texture, {
-                    neckDrop: 0.065,
-                    neckWidth: 0.26,
+                    neckDrop: 0.025,
+                    neckWidth: 0.32,
                     depthMultiplier: 0.95,
                     sleeveLengthFraction: 0.94,
                     sleeveRadiusScale: 0.96,
@@ -48,8 +48,8 @@ export class GarmentModelFactory {
                 });
             case 'jacket':
                 return this._createDeformableGarment('jacket', texture, {
-                    neckDrop: 0.090,
-                    neckWidth: 0.28,
+                    neckDrop: 0.035,
+                    neckWidth: 0.34,
                     depthMultiplier: 1.20,
                     sleeveLengthFraction: 0.96,
                     sleeveRadiusScale: 1.12,
@@ -58,8 +58,8 @@ export class GarmentModelFactory {
             case 'tshirt':
             default:
                 return this._createDeformableGarment('tshirt', texture, {
-                    neckDrop: 0.080, // Natural crew-neck scoop resting on upper chest below throat
-                    neckWidth: 0.28, // Anatomical neck opening width across trapezius
+                    neckDrop: 0.022, // Natural shallow crew-neck scoop resting directly on collarbone hollow
+                    neckWidth: 0.34, // Natural anatomical collar width across the trapezius
                     depthMultiplier: 1.0,
                     sleeveLengthFraction: 0.42, // short sleeves
                     sleeveRadiusScale: 1.0,
@@ -473,26 +473,26 @@ export class GarmentModelFactory {
         const u_lat = n_chest.clone().cross(v_up).normalize();
 
         // 2. CREW-NECK COLLAR & SHOULDER YOKE GEOMETRY
-        const collarWidthFraction = options.neckWidth || 0.28;
+        const collarWidthFraction = options.neckWidth || 0.34;
         const collarHalfWidth = sw * collarWidthFraction * 0.5;
-        const neckDropFraction = options.neckDrop || 0.080;
+        const neckDropFraction = options.neckDrop || 0.022;
         const neckDrop = sw * neckDropFraction;
 
-        // Trapezius peaks (highest anatomical collar anchor resting on trapezius slope)
+        // Trapezius peaks (anatomical collar base resting gracefully on trapezius slope)
         const P_trap_L = C_midShoulder.clone()
             .addScaledVector(u_lat, collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.048)
-            .addScaledVector(n_chest, -sw * 0.016);
+            .addScaledVector(v_up, sw * 0.026)
+            .addScaledVector(n_chest, -sw * 0.012);
 
         const P_trap_R = C_midShoulder.clone()
             .addScaledVector(u_lat, -collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.048)
-            .addScaledVector(n_chest, -sw * 0.016);
+            .addScaledVector(v_up, sw * 0.026)
+            .addScaledVector(n_chest, -sw * 0.012);
 
-        // Front crewneck lowest dip (resting comfortably on upper chest below throat at suprasternal notch)
+        // Front crewneck lowest dip (resting gently at clavicle hollow, perfectly proportional)
         const P_collarDip = C_midShoulder.clone()
             .addScaledVector(v_up, -neckDrop)
-            .addScaledVector(n_chest, sw * 0.038);
+            .addScaledVector(n_chest, sw * 0.032);
 
         // Dynamic shoulder elevation when arms raise
         const P_shoulder_L = C_ls.clone();
@@ -502,16 +502,16 @@ export class GarmentModelFactory {
         P_shoulder_R.y += rightArmLift * 0.25;
 
         // Top edge boundary function P_top(s) for s in [-1.0, 1.0]
-        // s = -1 is right shoulder, s = +1 is left shoulder
-        const s_neck = Math.min(0.38, collarWidthFraction * 1.15);
+        const s_neck = Math.min(0.42, collarWidthFraction * 1.05);
 
         const getTopPoint = (s) => {
             const absS = Math.abs(s);
             if (absS <= s_neck) {
-                // Smooth parabolic crew-neck scoop: derivative is 0 at center (no pointy chin tent)
-                const tau = s / s_neck; // -1 to +1
+                // Smooth circular/cosine crew-neck scoop: flat at bottom, graceful curve up to collar corners
+                const tau = absS / s_neck; // 0 to 1
+                const blend = 1.0 - Math.cos(tau * (Math.PI / 2.0));
                 const trap = (s >= 0) ? P_trap_L : P_trap_R;
-                return P_collarDip.clone().lerp(trap, tau * tau);
+                return P_collarDip.clone().lerp(trap, blend);
             } else {
                 // Smooth shoulder slope from trapezius to shoulder tip
                 if (s > s_neck) {
@@ -546,6 +546,11 @@ export class GarmentModelFactory {
                 L_armpit.y += leftArmLift * 0.35;
                 const R_armpit = C_rightArmpit.clone();
                 R_armpit.y += rightArmLift * 0.35;
+
+                // 3D armhole arching that matches sleeve cylinder rim
+                const armholeArch = Math.sin(t * Math.PI);
+                L_armpit.addScaledVector(u_lat, sw * 0.03 * armholeArch);
+                R_armpit.addScaledVector(u_lat, -sw * 0.03 * armholeArch);
 
                 L = L_armpit.clone().lerp(P_shoulder_L, t);
                 C = C_solar.clone().lerp(P_collarDip, t);
@@ -749,6 +754,9 @@ export class GarmentModelFactory {
             const seamWeight = Math.max(0, 1.0 - t / 0.32);
             const w = seamWeight * seamWeight * (3 - 2 * seamWeight);
 
+            // Overlap bridge: extends sleeve cap inward under the shoulder seam to eliminate visible slits/holes
+            const overlapBridge = Math.max(0, 1.0 - t / 0.18) * sw * 0.035;
+
             for (let i = 0; i <= N_circ; i++) {
                 const theta = (i / N_circ) * Math.PI * 2.0;
                 const cosT = Math.cos(theta);
@@ -762,15 +770,11 @@ export class GarmentModelFactory {
                     .addScaledVector(uAxis, r * cosT + deltoidVolume)
                     .addScaledVector(vAxis, r * sinT);
 
-                // Armhole seam coordinate (perfect alignment with bone coordinate quadrants)
-                // cosT = +1 is top shoulder tip
-                // cosT = -1 is bottom armpit
-                // sinT = +1 is front chest
-                // sinT = -1 is back scapula
+                // Armhole seam coordinate (with overlap bridge into torso to eliminate any gap)
                 const p_seam = armholeMid.clone()
                     .addScaledVector(armholeDirNorm, armholeRadiusY * cosT)
                     .addScaledVector(vAxis, armholeRadiusZ * sinT)
-                    .addScaledVector(uAxis, deltoidVolume);
+                    .addScaledVector(uAxis, deltoidVolume - overlapBridge);
 
                 // Blended seamless position
                 const p = p_seam.clone().lerp(p_bone, 1.0 - w);
@@ -795,10 +799,10 @@ export class GarmentModelFactory {
         const { C_ls, C_rs, C_solar, shoulderWidth3D } = pts;
 
         const sw = shoulderWidth3D;
-        const collarThickness = sw * 0.022;
-        const collarWidthFraction = options.neckWidth || 0.28;
+        const collarThickness = sw * 0.020;
+        const collarWidthFraction = options.neckWidth || 0.34;
         const collarHalfWidth = sw * collarWidthFraction * 0.5;
-        const neckDropFraction = options.neckDrop || 0.080;
+        const neckDropFraction = options.neckDrop || 0.022;
         const neckDrop = sw * neckDropFraction;
 
         const C_midShoulder = C_ls.clone().lerp(C_rs, 0.5);
@@ -813,25 +817,26 @@ export class GarmentModelFactory {
 
         const P_trap_L = C_midShoulder.clone()
             .addScaledVector(u_lat, collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.048)
-            .addScaledVector(n_chest, -sw * 0.016);
+            .addScaledVector(v_up, sw * 0.026)
+            .addScaledVector(n_chest, -sw * 0.012);
 
         const P_trap_R = C_midShoulder.clone()
             .addScaledVector(u_lat, -collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.048)
-            .addScaledVector(n_chest, -sw * 0.016);
+            .addScaledVector(v_up, sw * 0.026)
+            .addScaledVector(n_chest, -sw * 0.012);
 
         const P_collarDip = C_midShoulder.clone()
             .addScaledVector(v_up, -neckDrop)
-            .addScaledVector(n_chest, sw * 0.038);
+            .addScaledVector(n_chest, sw * 0.032);
 
         let idx = 0;
         for (let i = 0; i <= segments; i++) {
             const tau = (i / segments) * 2.0 - 1.0; // -1 (right trap) to 0 (front dip) to +1 (left trap)
             const trap = (tau >= 0) ? P_trap_L : P_trap_R;
+            const blend = 1.0 - Math.cos(Math.abs(tau) * (Math.PI / 2.0));
 
             // Inner crewneck seam
-            const innerPt = P_collarDip.clone().lerp(trap, tau * tau);
+            const innerPt = P_collarDip.clone().lerp(trap, blend);
 
             // Outer ribbing collar band
             const outerPt = innerPt.clone()

@@ -14,7 +14,7 @@
  */
 
 import * as THREE from 'three';
-import { GarmentModelFactory } from './garment_models.js?v=10.0';
+import { GarmentModelFactory } from './garment_models.js?v=11.0';
 
 /**
  * Empirical Ground-Truth Presets (Calibrated by User)

@@ -382,9 +382,9 @@ export class BodyTracker {
 
         const shoulderWidth = Math.hypot(ls.x - rs.x, ls.y - rs.y);
 
-        // Anatomical suprasternal notch (collarbone hollow at base of throat):
-        // Sits right between the medial clavicles, slightly below the shoulder midpoint line
-        let neckY = shoulderCenter.y + shoulderWidth * 0.025;
+        // Anatomical neck base (vertebra C7 / trapezius line):
+        // Sits right at the base of the neck column
+        let neckY = shoulderCenter.y - shoulderWidth * 0.015;
         let neckX = shoulderCenter.x;
         if (nose && (nose.visibility ?? 1.0) > 0.35) {
             neckX = shoulderCenter.x * 0.88 + nose.x * 0.12;
@@ -398,7 +398,7 @@ export class BodyTracker {
 
         const suprasternalNotch = {
             x: neckX,
-            y: shoulderCenter.y + shoulderWidth * 0.045,
+            y: shoulderCenter.y + shoulderWidth * 0.018,
             z: shoulderCenter.z - 0.015 * shoulderWidth
         };
 
