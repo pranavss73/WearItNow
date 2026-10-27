@@ -30,38 +30,38 @@ export class GarmentModelFactory {
         switch (type) {
             case 'hoodie':
                 return this._createDeformableGarment('hoodie', texture, {
-                    neckDrop: 0.04,
-                    neckWidth: 0.22,
+                    neckDrop: 0.075,
+                    neckWidth: 0.28,
                     depthMultiplier: 1.15,
                     sleeveLengthFraction: 0.96,
-                    sleeveRadiusScale: 1.12,
+                    sleeveRadiusScale: 1.10,
                     isHoodie: true,
                 });
             case 'formal_shirt':
                 return this._createDeformableGarment('formal_shirt', texture, {
-                    neckDrop: 0.035,
-                    neckWidth: 0.20,
+                    neckDrop: 0.065,
+                    neckWidth: 0.26,
                     depthMultiplier: 0.95,
                     sleeveLengthFraction: 0.94,
-                    sleeveRadiusScale: 0.98,
+                    sleeveRadiusScale: 0.96,
                     isFormalShirt: true,
                 });
             case 'jacket':
                 return this._createDeformableGarment('jacket', texture, {
-                    neckDrop: 0.10,
-                    neckWidth: 0.22,
+                    neckDrop: 0.090,
+                    neckWidth: 0.28,
                     depthMultiplier: 1.20,
                     sleeveLengthFraction: 0.96,
-                    sleeveRadiusScale: 1.15,
+                    sleeveRadiusScale: 1.12,
                     isJacket: true,
                 });
             case 'tshirt':
             default:
                 return this._createDeformableGarment('tshirt', texture, {
-                    neckDrop: 0.04, // Tamed from 0.10 to fit cleanly at the throat/clavicles
-                    neckWidth: 0.23, // Tamed from 0.30 to avoid over-scooping
+                    neckDrop: 0.080, // Natural crew-neck scoop resting on upper chest below throat
+                    neckWidth: 0.28, // Anatomical neck opening width across trapezius
                     depthMultiplier: 1.0,
-                    sleeveLengthFraction: 0.44, // short sleeves
+                    sleeveLengthFraction: 0.42, // short sleeves
                     sleeveRadiusScale: 1.0,
                 });
         }
@@ -235,7 +235,8 @@ export class GarmentModelFactory {
                     wrist: C_leftWrist,
                     wristVisibility: bodyCage.leftWrist?.visibility ?? 1.0,
                     shoulderWidth3D,
-                    isLeft: true
+                    isLeft: true,
+                    C_solar
                 }, { ...options, ...tweaks });
 
                 // 3. Deform Right Sleeve (seamless shoulder-to-armpit seam welding)
@@ -246,12 +247,15 @@ export class GarmentModelFactory {
                     wrist: C_rightWrist,
                     wristVisibility: bodyCage.rightWrist?.visibility ?? 1.0,
                     shoulderWidth3D,
-                    isLeft: false
+                    isLeft: false,
+                    C_solar
                 }, { ...options, ...tweaks });
 
                 // 4. Deform Collar Band
                 GarmentModelFactory._deformCollar(collarMesh.geometry, {
-                    C_neck, C_sternum, C_clavicleL, C_clavicleR,
+                    C_ls,
+                    C_rs,
+                    C_solar,
                     shoulderWidth3D
                 }, { ...options, ...tweaks });
 
@@ -296,8 +300,8 @@ export class GarmentModelFactory {
      * Initializes the static topology (indices and UVs) for the Torso buffer geometry
      */
     static _initTorsoGeometry() {
-        const Ny = 28;
-        const Nx = 28;
+        const Ny = 40;
+        const Nx = 40;
 
         const numVerts = (Ny + 1) * (Nx + 1);
         const positions = new Float32Array(numVerts * 3);
@@ -323,8 +327,9 @@ export class GarmentModelFactory {
                 const c = (j + 1) * (Nx + 1) + (i + 1);
                 const d = (j + 1) * (Nx + 1) + i;
 
-                indices.push(a, b, d);
-                indices.push(b, c, d);
+                // Front-facing winding (+Z towards camera)
+                indices.push(a, d, b);
+                indices.push(b, d, c);
             }
         }
 
@@ -339,8 +344,8 @@ export class GarmentModelFactory {
      * Initializes the static topology (indices and UVs) for a Sleeve buffer geometry
      */
     static _initSleeveGeometry(isLeft) {
-        const N_len = 18;
-        const N_circ = 16;
+        const N_len = 24;
+        const N_circ = 24;
 
         const numVerts = (N_len + 1) * (N_circ + 1);
         const positions = new Float32Array(numVerts * 3);
@@ -391,7 +396,7 @@ export class GarmentModelFactory {
      * Initializes the static topology for the Collar band
      */
     static _initCollarGeometry() {
-        const segments = 24;
+        const segments = 32;
         const numVerts = (segments + 1) * 2;
         const positions = new Float32Array(numVerts * 3);
         const uvs = new Float32Array(numVerts * 2);
@@ -415,8 +420,8 @@ export class GarmentModelFactory {
             const c = (i + 1) * 2 + 1;
             const d = (i + 1) * 2;
 
-            indices.push(a, b, d);
-            indices.push(b, c, d);
+            indices.push(a, d, b);
+            indices.push(b, d, c);
         }
 
         const geo = new THREE.BufferGeometry();
@@ -430,8 +435,8 @@ export class GarmentModelFactory {
      * Real-time Torso Mesh Deformation across the 18-point anatomical body cage
      */
     static _deformTorso(geo, pts, options = {}) {
-        const Ny = 28;
-        const Nx = 28;
+        const Ny = 40;
+        const Nx = 40;
         const pos = geo.attributes.position.array;
 
         const {
@@ -444,10 +449,80 @@ export class GarmentModelFactory {
             visibleHeight = 1.0
         } = pts;
 
-        const neckDrop = options.neckDrop || 0.04;
-        const neckWidth = options.neckWidth || 0.23;
+        const sw = shoulderWidth3D;
         const depthMul = options.depthMultiplier || 1.0;
         const silhouetteBounds = options.silhouetteBounds || null;
+
+        // 1. ANATOMICAL TORSO LOCAL COORDINATE FRAME
+        // Midpoint of shoulder tips (acromion processes)
+        const C_midShoulder = C_ls.clone().lerp(C_rs, 0.5);
+
+        // Lateral shoulder unit vector: points from right shoulder to left shoulder
+        const u_shoulder = C_ls.clone().sub(C_rs).normalize();
+
+        // Spine up-vector: points from solar plexus up to shoulder center
+        const V_spine = C_midShoulder.clone().sub(C_solar);
+        const v_up = (V_spine.lengthSq() > 0.001) ? V_spine.clone().normalize() : new THREE.Vector3(0, 1, 0);
+
+        // Forward chest normal: points outwards toward the camera (+Z)
+        let n_chest = v_up.clone().cross(u_shoulder).normalize();
+        if (n_chest.z < 0) n_chest.negate();
+        if (n_chest.lengthSq() < 0.5) n_chest = new THREE.Vector3(0, 0, 1);
+
+        // Orthogonal lateral vector in coronal chest plane
+        const u_lat = n_chest.clone().cross(v_up).normalize();
+
+        // 2. CREW-NECK COLLAR & SHOULDER YOKE GEOMETRY
+        const collarWidthFraction = options.neckWidth || 0.28;
+        const collarHalfWidth = sw * collarWidthFraction * 0.5;
+        const neckDropFraction = options.neckDrop || 0.080;
+        const neckDrop = sw * neckDropFraction;
+
+        // Trapezius peaks (highest anatomical collar anchor resting on trapezius slope)
+        const P_trap_L = C_midShoulder.clone()
+            .addScaledVector(u_lat, collarHalfWidth)
+            .addScaledVector(v_up, sw * 0.048)
+            .addScaledVector(n_chest, -sw * 0.016);
+
+        const P_trap_R = C_midShoulder.clone()
+            .addScaledVector(u_lat, -collarHalfWidth)
+            .addScaledVector(v_up, sw * 0.048)
+            .addScaledVector(n_chest, -sw * 0.016);
+
+        // Front crewneck lowest dip (resting comfortably on upper chest below throat at suprasternal notch)
+        const P_collarDip = C_midShoulder.clone()
+            .addScaledVector(v_up, -neckDrop)
+            .addScaledVector(n_chest, sw * 0.038);
+
+        // Dynamic shoulder elevation when arms raise
+        const P_shoulder_L = C_ls.clone();
+        P_shoulder_L.y += leftArmLift * 0.25;
+
+        const P_shoulder_R = C_rs.clone();
+        P_shoulder_R.y += rightArmLift * 0.25;
+
+        // Top edge boundary function P_top(s) for s in [-1.0, 1.0]
+        // s = -1 is right shoulder, s = +1 is left shoulder
+        const s_neck = Math.min(0.38, collarWidthFraction * 1.15);
+
+        const getTopPoint = (s) => {
+            const absS = Math.abs(s);
+            if (absS <= s_neck) {
+                // Smooth parabolic crew-neck scoop: derivative is 0 at center (no pointy chin tent)
+                const tau = s / s_neck; // -1 to +1
+                const trap = (s >= 0) ? P_trap_L : P_trap_R;
+                return P_collarDip.clone().lerp(trap, tau * tau);
+            } else {
+                // Smooth shoulder slope from trapezius to shoulder tip
+                if (s > s_neck) {
+                    const lambda = (s - s_neck) / (1.0 - s_neck);
+                    return P_trap_L.clone().lerp(P_shoulder_L, lambda);
+                } else {
+                    const lambda = (-s - s_neck) / (1.0 - s_neck);
+                    return P_trap_R.clone().lerp(P_shoulder_R, lambda);
+                }
+            }
+        };
 
         let idx = 0;
         for (let j = 0; j <= Ny; j++) {
@@ -462,21 +537,23 @@ export class GarmentModelFactory {
             } else if (v <= 0.70) {
                 const t = (v - 0.35) / 0.35;
                 L = C_leftWaist.clone().lerp(C_leftArmpit, t);
-                C = C_navel.clone().lerp(C_sternum, t);
+                C = C_navel.clone().lerp(C_solar, t);
                 R = C_rightWaist.clone().lerp(C_rightArmpit, t);
             } else {
+                // Upper torso region (chest to shoulders)
                 const t = (v - 0.70) / 0.30;
-                L = C_leftArmpit.clone().lerp(C_ls, t);
-                C = C_sternum.clone().lerp(C_neck, t);
-                R = C_rightArmpit.clone().lerp(C_rs, t);
+                const L_armpit = C_leftArmpit.clone();
+                L_armpit.y += leftArmLift * 0.35;
+                const R_armpit = C_rightArmpit.clone();
+                R_armpit.y += rightArmLift * 0.35;
 
-                // Dynamic lateral torso elevation when arms are raised (stretches latissimus and shoulders)
-                L.y += leftArmLift * t * 0.40;
-                R.y += rightArmLift * t * 0.40;
+                L = L_armpit.clone().lerp(P_shoulder_L, t);
+                C = C_solar.clone().lerp(P_collarDip, t);
+                R = R_armpit.clone().lerp(P_shoulder_R, t);
             }
 
             // Silhouette coordinate fitting (Elastic edge snapping & overshoot elimination)
-            if (silhouetteBounds && silhouetteBounds.length >= 4) {
+            if (silhouetteBounds && silhouetteBounds.length >= 6) {
                 const approxPy = (L.y + R.y) * 0.5;
                 const sliceNormY = 0.5 - (approxPy / visibleHeight);
 
@@ -494,8 +571,7 @@ export class GarmentModelFactory {
                     const targetLeft3D = (bestSlice.left - 0.5) * visibleWidth;
                     const targetRight3D = (bestSlice.right - 0.5) * visibleWidth;
 
-                    // Elastic blend factor: stronger around the ribcage/waist, soft around shoulders
-                    const fitFactor = (v < 0.85) ? 0.38 : 0.18;
+                    const fitFactor = (v < 0.82) ? 0.65 : 0.20;
                     L.x = L.x * (1 - fitFactor) + targetLeft3D * fitFactor;
                     R.x = R.x * (1 - fitFactor) + targetRight3D * fitFactor;
                 }
@@ -506,38 +582,45 @@ export class GarmentModelFactory {
                 const s = (u - 0.5) * 2.0; // -1.0 (right seam) to +1.0 (left seam)
 
                 let px, py, pz;
-                if (s < 0) {
-                    const tx = s + 1.0; // 0 at right seam, 1 at center
-                    px = R.x * (1 - tx) + C.x * tx;
-                    py = R.y * (1 - tx) + C.y * tx;
-                    pz = R.z * (1 - tx) + C.z * tx;
+                if (v <= 0.70) {
+                    // Lower and middle torso (hem to armpits)
+                    if (s < 0) {
+                        const tx = s + 1.0;
+                        px = R.x * (1 - tx) + C.x * tx;
+                        py = R.y * (1 - tx) + C.y * tx;
+                        pz = R.z * (1 - tx) + C.z * tx;
+                    } else {
+                        const tx = s;
+                        px = C.x * (1 - tx) + L.x * tx;
+                        py = C.y * (1 - tx) + L.y * tx;
+                        pz = C.z * (1 - tx) + L.z * tx;
+                    }
                 } else {
-                    const tx = s; // 0 at center, 1 at left seam
-                    px = C.x * (1 - tx) + L.x * tx;
-                    py = C.y * (1 - tx) + L.y * tx;
-                    pz = C.z * (1 - tx) + L.z * tx;
+                    // Upper torso smoothly transitioning to the contoured crewneck scoop & shoulder line
+                    const t = (v - 0.70) / 0.30;
+                    let P_chest;
+                    if (s < 0) {
+                        const tx = s + 1.0;
+                        P_chest = R.clone().multiplyScalar(1 - tx).addScaledVector(C, tx);
+                    } else {
+                        const tx = s;
+                        P_chest = C.clone().multiplyScalar(1 - tx).addScaledVector(L, tx);
+                    }
+                    const P_top = getTopPoint(s);
+                    const P_blended = P_chest.clone().lerp(P_top, t);
+                    px = P_blended.x;
+                    py = P_blended.y;
+                    pz = P_blended.z;
                 }
 
-                // Anatomical front chest curvature / depth volume
+                // Anatomical chest curvature / 3D pectoral dome along true chest normal
                 const chestCurve = Math.max(0, 1.0 - s * s);
-                const vProfile = Math.sin(Math.min(1.0, v * 1.15) * Math.PI);
-                const depth = shoulderWidth3D * 0.16 * depthMul * chestCurve * (0.35 + 0.65 * vProfile);
-                pz += depth;
+                const vProfile = Math.sin(Math.min(1.0, v * 1.25) * Math.PI);
+                const depth = sw * 0.135 * depthMul * chestCurve * (0.30 + 0.70 * vProfile);
 
-                // Smooth neckline scoop
-                if (v > 0.65) {
-                    const topWeight = (v - 0.65) / 0.35;
-                    const neckProfile = Math.exp(-Math.pow(s / neckWidth, 2));
-                    const dip = neckDrop * shoulderWidth3D * topWeight * neckProfile;
-                    py -= dip;
-                    pz -= dip * 0.25;
-                }
-
-                // Outer shoulder natural slope
-                if (v > 0.75) {
-                    const shWeight = (v - 0.75) / 0.25;
-                    py -= shoulderWidth3D * 0.05 * shWeight * (s * s);
-                }
+                px += n_chest.x * depth;
+                py += n_chest.y * depth;
+                pz += n_chest.z * depth;
 
                 pos[idx * 3] = px;
                 pos[idx * 3 + 1] = py;
@@ -556,32 +639,31 @@ export class GarmentModelFactory {
      * Includes seamless armhole seam welding so sleeves never tear or detach when arms raise.
      */
     static _deformSleeve(geo, pts, options = {}) {
-        const N_len = 18;
-        const N_circ = 16;
+        const N_len = 24;
+        const N_circ = 24;
         const pos = geo.attributes.position.array;
 
-        const { origin, armpit, elbow, wrist, wristVisibility, shoulderWidth3D, isLeft } = pts;
+        const { origin, armpit, elbow, wrist, wristVisibility, shoulderWidth3D, isLeft, C_solar } = pts;
+        const sw = shoulderWidth3D;
         const isShortSleeve = options.sleeveLengthFraction && options.sleeveLengthFraction < 0.6;
         const radiusScale = options.sleeveRadiusScale || 1.0;
 
-        const topRadius = shoulderWidth3D * 0.165 * radiusScale;
-        const elbowRadius = shoulderWidth3D * 0.125 * radiusScale;
-        const wristRadius = shoulderWidth3D * 0.095 * radiusScale;
-        const bicepRadius = shoulderWidth3D * 0.138 * radiusScale;
+        const topRadius = sw * 0.155 * radiusScale;
+        const bicepRadius = sw * 0.135 * radiusScale;
+        const elbowRadius = sw * 0.120 * radiusScale;
+        const wristRadius = sw * 0.090 * radiusScale;
 
-        // Armhole seam geometry for seamless welding into torso
-        const armpitPt = armpit || origin.clone().add(new THREE.Vector3(0, -shoulderWidth3D * 0.35, 0));
-        const armholeMid = origin.clone().lerp(armpitPt, 0.5);
-        const armholeVec = armpitPt.clone().sub(origin);
-        const armholeRadiusY = Math.max(0.04, armholeVec.length() * 0.5);
-        const armholeDirY = armholeVec.clone().normalize();
-        const armholeDirZ = new THREE.Vector3(0, 0, 1);
-        const armholeRadiusZ = shoulderWidth3D * 0.13 * radiusScale;
-
-        // Upper arm vector: from shoulder (origin) to elbow
-        const V_upper = (elbow ? elbow.clone().sub(origin) : new THREE.Vector3(0, -shoulderWidth3D * 0.9, 0));
-        const upperLen = Math.max(0.04, V_upper.length());
+        // 1. Arm bone vectors
+        // Upper arm vector: from shoulder origin to elbow
+        let V_upper;
+        if (elbow && elbow.distanceTo(origin) > 0.04) {
+            V_upper = elbow.clone().sub(origin);
+        } else {
+            const fallbackX = isLeft ? -sw * 0.22 : sw * 0.22;
+            V_upper = new THREE.Vector3(fallbackX, -sw * 0.85, 0);
+        }
         const dirUpper = V_upper.clone().normalize();
+        const upperLen = V_upper.length();
 
         // Forearm vector: from elbow to wrist
         let V_fore;
@@ -595,20 +677,44 @@ export class GarmentModelFactory {
         }
         const dirFore = V_fore.clone().normalize();
 
-        // Helper to construct orthonormal basis perpendicular to bone direction
+        // 2. Orthonormal basis (Phase-aligned non-twisting frame)
+        // u_out: points laterally outward from body
+        // v_fwd: points forward towards camera (+Z)
         const getBasis = (dir) => {
-            let ref = new THREE.Vector3(0, 0, 1);
-            if (Math.abs(dir.dot(ref)) > 0.90) {
-                ref = new THREE.Vector3(0, 1, 0);
+            const refTorso = C_solar || origin.clone().add(new THREE.Vector3(isLeft ? 0.3 * sw : -0.3 * sw, -0.2 * sw, 0));
+            const T_out = origin.clone().sub(refTorso);
+
+            // Project T_out perpendicular to dir
+            let u = T_out.clone().sub(dir.clone().multiplyScalar(T_out.dot(dir))).normalize();
+            if (u.lengthSq() < 0.1) {
+                u = new THREE.Vector3(isLeft ? -1 : 1, 0, 0);
             }
-            const u = new THREE.Vector3().crossVectors(dir, ref).normalize();
-            const v = new THREE.Vector3().crossVectors(u, dir).normalize();
-            if (!isLeft) u.negate();
+            if (isLeft && u.x > 0) u.negate();
+            if (!isLeft && u.x < 0) u.negate();
+
+            // Forward depth vector (+Z towards camera)
+            let v = u.clone().cross(dir).normalize();
+            if (v.z < 0) v.negate();
+
+            // Re-orthogonalize u
+            u = dir.clone().cross(v).normalize();
+            if (isLeft && u.x > 0) u.negate();
+            if (!isLeft && u.x < 0) u.negate();
+
             return { u, v };
         };
 
         const basisUpper = getBasis(dirUpper);
         const basisFore = getBasis(dirFore);
+
+        // 3. Armhole perimeter geometry (welded to shoulder and armpit seam)
+        const armpitPt = armpit ? armpit.clone() : origin.clone().add(new THREE.Vector3(0, -sw * 0.35, 0));
+        const armholeMid = origin.clone().lerp(armpitPt, 0.5);
+        const armholeDir = origin.clone().sub(armpitPt);
+        const armholeRadiusY = Math.max(0.04, armholeDir.length() * 0.5);
+        const armholeDirNorm = armholeDir.clone().normalize();
+        const armholeRadiusZ = sw * 0.125 * radiusScale;
+        const deltoidCapBump = sw * 0.035 * radiusScale;
 
         let idx = 0;
         for (let j = 0; j <= N_len; j++) {
@@ -617,22 +723,20 @@ export class GarmentModelFactory {
             let ringCenter, r, uAxis, vAxis;
 
             if (isShortSleeve) {
-                // Short sleeve (T-Shirt): spans shoulder down to bicep
                 const frac = t * (options.sleeveLengthFraction || 0.42);
                 ringCenter = origin.clone().addScaledVector(V_upper, frac);
                 r = topRadius * (1.0 - t) + bicepRadius * t;
                 uAxis = basisUpper.u;
                 vAxis = basisUpper.v;
             } else {
-                // Long sleeve (Shirt, Hoodie, Jacket): spans shoulder -> elbow -> wrist
                 if (t <= 0.50) {
-                    const s = t / 0.50; // 0 (shoulder) to 1 (elbow)
+                    const s = t / 0.50;
                     ringCenter = origin.clone().lerp(elbow, s);
                     r = topRadius * (1.0 - s) + elbowRadius * s;
                     uAxis = basisUpper.u;
                     vAxis = basisUpper.v;
                 } else {
-                    const s = (t - 0.50) / 0.50; // 0 (elbow) to 1 (wrist)
+                    const s = (t - 0.50) / 0.50;
                     const wristTarget = (wrist && wristVisibility > 0.35) ? wrist : elbow.clone().add(V_fore);
                     ringCenter = elbow.clone().lerp(wristTarget, s);
                     r = elbowRadius * (1.0 - s) + wristRadius * s;
@@ -641,37 +745,39 @@ export class GarmentModelFactory {
                 }
             }
 
-            // Cubic smoothstep blend: 1.0 at shoulder/armhole seam (t=0) down to 0.0 along bicep (t >= 0.35)
-            const seamWeight = Math.max(0, 1.0 - t / 0.35);
+            // Smoothstep seam blend: 1.0 at shoulder/armhole seam (t=0) down to 0.0 along bicep (t >= 0.32)
+            const seamWeight = Math.max(0, 1.0 - t / 0.32);
             const w = seamWeight * seamWeight * (3 - 2 * seamWeight);
 
-            // Wrap complete 360-degree cylinder enclosing the arm
             for (let i = 0; i <= N_circ; i++) {
-                const fracCirc = i / N_circ;
-                // theta: wraps 360 degrees around the bone axis
-                const theta = -Math.PI / 2.0 + fracCirc * Math.PI * 2.0;
-
-                const sinT = Math.sin(theta);
+                const theta = (i / N_circ) * Math.PI * 2.0;
                 const cosT = Math.cos(theta);
+                const sinT = Math.sin(theta);
 
-                // Bone ring coordinate
-                const p_bone_x = ringCenter.x + r * (sinT * uAxis.x + cosT * vAxis.x);
-                const p_bone_y = ringCenter.y + r * (sinT * uAxis.y + cosT * vAxis.y);
-                const p_bone_z = ringCenter.z + r * (sinT * uAxis.z + cosT * vAxis.z);
+                // Deltoid muscular curvature at upper sleeve
+                const deltoidVolume = Math.max(0, cosT) * deltoidCapBump * (1.0 - t);
 
-                // Armhole perimeter coordinate (welded to shoulder origin and armpit)
-                const p_seam_x = armholeMid.x - cosT * armholeRadiusY * armholeDirY.x + sinT * armholeRadiusZ * armholeDirZ.x;
-                const p_seam_y = armholeMid.y - cosT * armholeRadiusY * armholeDirY.y + sinT * armholeRadiusZ * armholeDirZ.y;
-                const p_seam_z = armholeMid.z - cosT * armholeRadiusY * armholeDirY.z + sinT * armholeRadiusZ * armholeDirZ.z;
+                // Bone cylinder coordinate
+                const p_bone = ringCenter.clone()
+                    .addScaledVector(uAxis, r * cosT + deltoidVolume)
+                    .addScaledVector(vAxis, r * sinT);
 
-                // Seamlessly blended coordinate
-                const px = p_seam_x * w + p_bone_x * (1 - w);
-                const py = p_seam_y * w + p_bone_y * (1 - w);
-                const pz = p_seam_z * w + p_bone_z * (1 - w);
+                // Armhole seam coordinate (perfect alignment with bone coordinate quadrants)
+                // cosT = +1 is top shoulder tip
+                // cosT = -1 is bottom armpit
+                // sinT = +1 is front chest
+                // sinT = -1 is back scapula
+                const p_seam = armholeMid.clone()
+                    .addScaledVector(armholeDirNorm, armholeRadiusY * cosT)
+                    .addScaledVector(vAxis, armholeRadiusZ * sinT)
+                    .addScaledVector(uAxis, deltoidVolume);
 
-                pos[idx * 3] = px;
-                pos[idx * 3 + 1] = py;
-                pos[idx * 3 + 2] = pz;
+                // Blended seamless position
+                const p = p_seam.clone().lerp(p_bone, 1.0 - w);
+
+                pos[idx * 3] = p.x;
+                pos[idx * 3 + 1] = p.y;
+                pos[idx * 3 + 2] = p.z;
                 idx++;
             }
         }
@@ -681,41 +787,68 @@ export class GarmentModelFactory {
     }
 
     /**
-     * Real-time Collar Band Deformation flush with the anatomical neckline
+     * Real-time Collar Band Deformation flush with the crew-neck scoop
      */
     static _deformCollar(geo, pts, options = {}) {
-        const segments = 24;
+        const segments = 32;
         const pos = geo.attributes.position.array;
-        const { C_neck, C_sternum, C_clavicleL, C_clavicleR, shoulderWidth3D } = pts;
+        const { C_ls, C_rs, C_solar, shoulderWidth3D } = pts;
 
-        const thickness = shoulderWidth3D * 0.035;
+        const sw = shoulderWidth3D;
+        const collarThickness = sw * 0.022;
+        const collarWidthFraction = options.neckWidth || 0.28;
+        const collarHalfWidth = sw * collarWidthFraction * 0.5;
+        const neckDropFraction = options.neckDrop || 0.080;
+        const neckDrop = sw * neckDropFraction;
+
+        const C_midShoulder = C_ls.clone().lerp(C_rs, 0.5);
+        const u_shoulder = C_ls.clone().sub(C_rs).normalize();
+        const V_spine = C_midShoulder.clone().sub(C_solar);
+        const v_up = (V_spine.lengthSq() > 0.001) ? V_spine.clone().normalize() : new THREE.Vector3(0, 1, 0);
+
+        let n_chest = v_up.clone().cross(u_shoulder).normalize();
+        if (n_chest.z < 0) n_chest.negate();
+        if (n_chest.lengthSq() < 0.5) n_chest = new THREE.Vector3(0, 0, 1);
+        const u_lat = n_chest.clone().cross(v_up).normalize();
+
+        const P_trap_L = C_midShoulder.clone()
+            .addScaledVector(u_lat, collarHalfWidth)
+            .addScaledVector(v_up, sw * 0.048)
+            .addScaledVector(n_chest, -sw * 0.016);
+
+        const P_trap_R = C_midShoulder.clone()
+            .addScaledVector(u_lat, -collarHalfWidth)
+            .addScaledVector(v_up, sw * 0.048)
+            .addScaledVector(n_chest, -sw * 0.016);
+
+        const P_collarDip = C_midShoulder.clone()
+            .addScaledVector(v_up, -neckDrop)
+            .addScaledVector(n_chest, sw * 0.038);
 
         let idx = 0;
         for (let i = 0; i <= segments; i++) {
-            const t = i / segments;
-            const angle = Math.PI * (1.0 - t);
-            const sinA = Math.sin(angle);
-            const cosA = Math.cos(angle);
+            const tau = (i / segments) * 2.0 - 1.0; // -1 (right trap) to 0 (front dip) to +1 (left trap)
+            const trap = (tau >= 0) ? P_trap_L : P_trap_R;
 
-            let centerPt;
-            if (t < 0.5) {
-                const tHalf = t * 2.0;
-                centerPt = C_clavicleR.clone().lerp(C_sternum, tHalf);
-            } else {
-                const tHalf = (t - 0.5) * 2.0;
-                centerPt = C_sternum.clone().lerp(C_clavicleL, tHalf);
-            }
+            // Inner crewneck seam
+            const innerPt = P_collarDip.clone().lerp(trap, tau * tau);
+
+            // Outer ribbing collar band
+            const outerPt = innerPt.clone()
+                .addScaledVector(v_up, -collarThickness * (1.0 - 0.35 * tau * tau))
+                .addScaledVector(u_lat, tau * collarThickness * 0.30)
+                .addScaledVector(n_chest, 0.006);
 
             // Inner vertex
-            pos[idx * 3] = centerPt.x;
-            pos[idx * 3 + 1] = centerPt.y;
-            pos[idx * 3 + 2] = centerPt.z + 0.01;
+            pos[idx * 3] = innerPt.x;
+            pos[idx * 3 + 1] = innerPt.y;
+            pos[idx * 3 + 2] = innerPt.z + 0.005;
             idx++;
 
             // Outer vertex
-            pos[idx * 3] = centerPt.x + cosA * thickness * 0.5;
-            pos[idx * 3 + 1] = centerPt.y + thickness * (0.8 + 0.2 * sinA);
-            pos[idx * 3 + 2] = centerPt.z + 0.015;
+            pos[idx * 3] = outerPt.x;
+            pos[idx * 3 + 1] = outerPt.y;
+            pos[idx * 3 + 2] = outerPt.z + 0.008;
             idx++;
         }
 

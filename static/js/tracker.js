@@ -157,22 +157,22 @@ export class BodyTracker {
     }
 
     /**
-     * Run lightweight silhouette edge segmentation on downscaled canvas (sub-2ms execution)
+     * Run lightweight silhouette edge segmentation on offscreen canvas (sub-2.5ms execution)
      */
     _processSegmentation(videoSource, isMirrored = true) {
         if (!this.segmenterReady || !this.segmenter || !videoSource) return;
         const now = performance.now();
-        if (now - this.lastSegmenterTime < 80) return; // run at ~12 FPS to preserve full 60 FPS on main thread
+        if (now - this.lastSegmenterTime < 45) return; // ~22 FPS segmentation update rate
         this.lastSegmenterTime = now;
 
         try {
             if (!this.segmenterCanvas) {
                 this.segmenterCanvas = document.createElement('canvas');
-                this.segmenterCanvas.width = 160;
-                this.segmenterCanvas.height = 90;
+                this.segmenterCanvas.width = 256;
+                this.segmenterCanvas.height = 144;
                 this.segmenterCtx = this.segmenterCanvas.getContext('2d', { willReadFrequently: true });
             }
-            this.segmenterCtx.drawImage(videoSource, 0, 0, 160, 90);
+            this.segmenterCtx.drawImage(videoSource, 0, 0, 256, 144);
 
             this.segmenter.segment(this.segmenterCanvas, (result) => {
                 if (result && result.confidenceMasks && result.confidenceMasks.length > 0) {
@@ -186,7 +186,7 @@ export class BodyTracker {
     }
 
     /**
-     * Extract horizontal silhouette slice bounds {y, left, right} for garment edge fitting
+     * Extract horizontal silhouette slice bounds {y, left, right} for high-precision garment edge fitting
      */
     _extractSilhouetteBounds(confidenceMask, isMirrored = true) {
         if (!confidenceMask) return null;
@@ -201,9 +201,9 @@ export class BodyTracker {
         if (!data || data.length === 0) return null;
 
         const slices = [];
-        const numSlices = 14;
+        const numSlices = 28; // Dense 28-slice scanning for accurate torso contours
         for (let s = 0; s < numSlices; s++) {
-            const normY = 0.20 + (s / (numSlices - 1)) * 0.70;
+            const normY = 0.18 + (s / (numSlices - 1)) * 0.72;
             const rowY = Math.min(h - 1, Math.max(0, Math.floor(normY * h)));
             const rowOffset = rowY * w;
 
@@ -235,7 +235,7 @@ export class BodyTracker {
             }
         }
 
-        return slices.length >= 4 ? slices : null;
+        return slices.length >= 6 ? slices : null;
     }
 
     /**
@@ -382,16 +382,12 @@ export class BodyTracker {
 
         const shoulderWidth = Math.hypot(ls.x - rs.x, ls.y - rs.y);
 
-        // Dynamically anchor neck base (suprasternal notch) towards chin/throat
-        let neckY = shoulderCenter.y - shoulderWidth * 0.12;
+        // Anatomical suprasternal notch (collarbone hollow at base of throat):
+        // Sits right between the medial clavicles, slightly below the shoulder midpoint line
+        let neckY = shoulderCenter.y + shoulderWidth * 0.025;
         let neckX = shoulderCenter.x;
         if (nose && (nose.visibility ?? 1.0) > 0.35) {
-            const headDy = shoulderCenter.y - nose.y;
-            if (headDy > 0.05 && headDy < shoulderWidth * 1.6) {
-                // Sits around 32% of distance from shoulders towards nose (base of throat)
-                neckY = shoulderCenter.y - headDy * 0.35;
-                neckX = shoulderCenter.x * 0.70 + nose.x * 0.30;
-            }
+            neckX = shoulderCenter.x * 0.88 + nose.x * 0.12;
         }
 
         const neck = {
@@ -400,16 +396,22 @@ export class BodyTracker {
             z: shoulderCenter.z
         };
 
-        // Inner clavicles
+        const suprasternalNotch = {
+            x: neckX,
+            y: shoulderCenter.y + shoulderWidth * 0.045,
+            z: shoulderCenter.z - 0.015 * shoulderWidth
+        };
+
+        // Inner clavicles (collarbones)
         const clavicleLeft = {
-            x: ls.x * 0.55 + neck.x * 0.45,
-            y: ls.y * 0.55 + neck.y * 0.45,
-            z: ls.z * 0.55 + neck.z * 0.45
+            x: ls.x * 0.60 + neck.x * 0.40,
+            y: ls.y * 0.60 + neck.y * 0.40,
+            z: ls.z * 0.60 + neck.z * 0.40
         };
         const clavicleRight = {
-            x: rs.x * 0.55 + neck.x * 0.45,
-            y: rs.y * 0.55 + neck.y * 0.45,
-            z: rs.z * 0.55 + neck.z * 0.45
+            x: rs.x * 0.60 + neck.x * 0.40,
+            y: rs.y * 0.60 + neck.y * 0.40,
+            z: rs.z * 0.60 + neck.z * 0.40
         };
 
         // Hips: detect or extrapolate
@@ -506,6 +508,7 @@ export class BodyTracker {
 
         return {
             neck,
+            suprasternalNotch,
             clavicleLeft,
             clavicleRight,
             leftShoulder: ls,
