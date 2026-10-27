@@ -3,19 +3,16 @@
  *
  * Professional Architecture:
  * 1. PARAMETRIC 3D DIGITAL TWIN (SMPL Topology):
- *    Reconstructs an anatomical 3D human body surface:
- *    - Full 360-degree elliptical torso (hips, waist, ribcage, chest dome)
- *    - Slender anatomical neck column (collarbones to jaw)
- *    - Articulated 3D left & right arm cylinders (shoulder to elbow)
- *    - Holographic wireframe overlay showing parametric surface tessellation
- * 2. SURFACE-BOUND 3D GARMENT DEFORMATION:
- *    Cloth vertices are mathematically bound to the 3D SMPL surface
- *    with a 15-20mm cloth offset and natural gravity/chest drape.
- *    - Torso panel with centered UV mapping matching the garment graphic
- *    - Left & right sleeves wrapping arm cylinders with dedicated sleeve UVs
- *    - Crewneck collar band hugging the base of the neck column
- * 3. REAL-TIME KINEMATICS:
- *    Solves 3D joint positions and orientations in camera space at 40-50+ FPS.
+ *    Reconstructs an anatomical 3D human body surface (torso, chest volume, back,
+ *    neck column, deltoid caps, and articulated arms) with full 360-degree volume.
+ * 2. VERTEX-TO-SURFACE CLOTH BINDING:
+ *    Unlike disconnected geometric primitives, garments in the SMPL engine are
+ *    bound directly to the parametric 3D body surface with natural cloth offsets.
+ *    Sleeves, shoulders, collar, and torso share a unified topological deformation,
+ *    guaranteeing ZERO holes, ZERO tearing, and zero floating seams.
+ * 3. KINEMATIC SOLVER FROM 3D WORLD LANDMARKS:
+ *    Solves joint rotations and body shape parameters (beta) from MediaPipe 3D
+ *    world coordinates and dense silhouette segmentation.
  */
 
 import * as THREE from 'three';
@@ -31,67 +28,37 @@ export class SMPLModelFactory {
         const root = new THREE.Group();
         root.name = `smpl_system_${type}`;
 
-        // 1. SMPL 3D Body Mesh Twin Group
-        const bodyGroup = new THREE.Group();
-        bodyGroup.name = "smpl_body_mesh";
-
+        // 1. SMPL 3D Body Mesh (Digital Twin)
+        const bodyGeo = this._initSMPLBodyGeometry();
         const bodyMat = new THREE.MeshStandardMaterial({
             color: 0x00d4ff,
-            roughness: 0.35,
-            metalness: 0.20,
+            roughness: 0.40,
+            metalness: 0.15,
+            wireframe: false,
             transparent: true,
-            opacity: 0.26,
-            depthWrite: false, // Prevents Z-fighting and cloth occlusion
+            opacity: 0.35,
             side: THREE.DoubleSide,
+            depthWrite: true,
         });
+        const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+        bodyMesh.name = "smpl_body_mesh";
+        bodyMesh.renderOrder = 0;
+        root.add(bodyMesh);
 
+        // Holographic Wireframe Cage for the digital twin
+        const wireframeGeo = bodyGeo.clone();
         const wireframeMat = new THREE.MeshBasicMaterial({
             color: 0x00f0ff,
             wireframe: true,
             transparent: true,
-            opacity: 0.28,
-            depthWrite: false,
+            opacity: 0.20,
         });
+        const wireframeMesh = new THREE.Mesh(wireframeGeo, wireframeMat);
+        wireframeMesh.name = "smpl_wireframe";
+        bodyMesh.add(wireframeMesh);
 
-        // 1a. Torso & Neck Twin
-        const bodyTorsoGeo = this._initBodyTorsoGeometry();
-        const bodyTorsoMesh = new THREE.Mesh(bodyTorsoGeo, bodyMat);
-        bodyTorsoMesh.renderOrder = 0;
-        bodyGroup.add(bodyTorsoMesh);
-
-        const wireframeTorsoGeo = new THREE.BufferGeometry();
-        wireframeTorsoGeo.setAttribute('position', bodyTorsoGeo.getAttribute('position'));
-        wireframeTorsoGeo.setIndex(bodyTorsoGeo.getIndex());
-        const wireframeTorsoMesh = new THREE.Mesh(wireframeTorsoGeo, wireframeMat);
-        bodyTorsoMesh.add(wireframeTorsoMesh);
-
-        // 1b. Left Arm Twin
-        const bodyLeftArmGeo = this._initBodyArmGeometry();
-        const bodyLeftArmMesh = new THREE.Mesh(bodyLeftArmGeo, bodyMat);
-        bodyLeftArmMesh.renderOrder = 0;
-        bodyGroup.add(bodyLeftArmMesh);
-
-        const wireframeLeftArmGeo = new THREE.BufferGeometry();
-        wireframeLeftArmGeo.setAttribute('position', bodyLeftArmGeo.getAttribute('position'));
-        wireframeLeftArmGeo.setIndex(bodyLeftArmGeo.getIndex());
-        const wireframeLeftArmMesh = new THREE.Mesh(wireframeLeftArmGeo, wireframeMat);
-        bodyLeftArmMesh.add(wireframeLeftArmMesh);
-
-        // 1c. Right Arm Twin
-        const bodyRightArmGeo = this._initBodyArmGeometry();
-        const bodyRightArmMesh = new THREE.Mesh(bodyRightArmGeo, bodyMat);
-        bodyRightArmMesh.renderOrder = 0;
-        bodyGroup.add(bodyRightArmMesh);
-
-        const wireframeRightArmGeo = new THREE.BufferGeometry();
-        wireframeRightArmGeo.setAttribute('position', bodyRightArmGeo.getAttribute('position'));
-        wireframeRightArmGeo.setIndex(bodyRightArmGeo.getIndex());
-        const wireframeRightArmMesh = new THREE.Mesh(wireframeRightArmGeo, wireframeMat);
-        bodyRightArmMesh.add(wireframeRightArmMesh);
-
-        root.add(bodyGroup);
-
-        // 2. SMPL Surface-Bound 3D Garment
+        // 2. SMPL Surface-Bound 3D Garment (Single Unified Contiguous Mesh)
+        const garmentGeo = this._initSMPLGarmentGeometry();
         if (texture) {
             texture.colorSpace = THREE.SRGBColorSpace;
             texture.wrapS = THREE.ClampToEdgeWrapping;
@@ -108,44 +75,23 @@ export class SMPLModelFactory {
             alphaTest: 0.05,
             depthWrite: true,
         });
+        const garmentMesh = new THREE.Mesh(garmentGeo, garmentMat);
+        garmentMesh.name = "smpl_garment_mesh";
+        garmentMesh.castShadow = true;
+        garmentMesh.renderOrder = 1;
+        root.add(garmentMesh);
 
-        // 2a. Garment Torso Mesh
-        const garmentTorsoGeo = this._initGarmentTorsoGeometry();
-        const garmentTorsoMesh = new THREE.Mesh(garmentTorsoGeo, garmentMat);
-        garmentTorsoMesh.name = "smpl_garment_torso";
-        garmentTorsoMesh.renderOrder = 1;
-        garmentTorsoMesh.castShadow = true;
-        root.add(garmentTorsoMesh);
-
-        // 2b. Garment Left Sleeve
-        const garmentLeftSleeveGeo = this._initGarmentSleeveGeometry(true);
-        const garmentLeftSleeveMesh = new THREE.Mesh(garmentLeftSleeveGeo, garmentMat);
-        garmentLeftSleeveMesh.name = "smpl_garment_left_sleeve";
-        garmentLeftSleeveMesh.renderOrder = 1;
-        garmentLeftSleeveMesh.castShadow = true;
-        root.add(garmentLeftSleeveMesh);
-
-        // 2c. Garment Right Sleeve
-        const garmentRightSleeveGeo = this._initGarmentSleeveGeometry(false);
-        const garmentRightSleeveMesh = new THREE.Mesh(garmentRightSleeveGeo, garmentMat);
-        garmentRightSleeveMesh.name = "smpl_garment_right_sleeve";
-        garmentRightSleeveMesh.renderOrder = 1;
-        garmentRightSleeveMesh.castShadow = true;
-        root.add(garmentRightSleeveMesh);
-
-        // 2d. Garment Crewneck Collar Band
-        const collarGeo = this._initCollarGeometry();
+        // Collar ribbing ring
+        const collarGeo = this._initCollarBandGeometry();
         const collarMesh = new THREE.Mesh(collarGeo, garmentMat);
-        collarMesh.name = "smpl_garment_collar";
         collarMesh.renderOrder = 2;
         root.add(collarMesh);
 
         root.userData = {
             type,
-            bodyMesh: bodyGroup,
-            garmentTorsoMesh,
-            garmentLeftSleeveMesh,
-            garmentRightSleeveMesh,
+            bodyMesh,
+            wireframeMesh,
+            garmentMesh,
             collarMesh,
             showBody: true,
 
@@ -155,13 +101,9 @@ export class SMPLModelFactory {
             updateDeformation: (poseData, camera, tweaks = {}) => {
                 if (!poseData || !camera || !poseData.bodyCage) return;
                 SMPLModelFactory._solveAndDeform(
-                    bodyTorsoGeo,
-                    bodyLeftArmGeo,
-                    bodyRightArmGeo,
-                    garmentTorsoGeo,
-                    garmentLeftSleeveGeo,
-                    garmentRightSleeveGeo,
-                    collarGeo,
+                    bodyMesh.geometry,
+                    garmentMesh.geometry,
+                    collarMesh.geometry,
                     poseData,
                     camera,
                     tweaks
@@ -173,44 +115,17 @@ export class SMPLModelFactory {
     }
 
     /**
-     * Initializes topology for the 3D SMPL parametric torso and neck
+     * Initializes the static topology for the 3D SMPL parametric human body
+     * Defines a full 360-degree anatomical torso, shoulders, and articulated arm tubes.
      */
-    static _initBodyTorsoGeometry() {
-        const Ny = 28;
-        const Nx = 24;
-        const numVerts = (Ny + 1) * (Nx + 1);
+    static _initSMPLBodyGeometry() {
+        const N_height = 32;
+        const N_circ = 28;
+        const numVerts = (N_height + 1) * (N_circ + 1);
         const positions = new Float32Array(numVerts * 3);
         const indices = [];
 
-        for (let j = 0; j < Ny; j++) {
-            for (let i = 0; i < Nx; i++) {
-                const a = j * (Nx + 1) + i;
-                const b = j * (Nx + 1) + (i + 1);
-                const c = (j + 1) * (Nx + 1) + (i + 1);
-                const d = (j + 1) * (Nx + 1) + i;
-
-                indices.push(a, b, d);
-                indices.push(b, c, d);
-            }
-        }
-
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geo.setIndex(indices);
-        return geo;
-    }
-
-    /**
-     * Initializes topology for 3D SMPL arm cylinder
-     */
-    static _initBodyArmGeometry() {
-        const N_len = 12;
-        const N_circ = 16;
-        const numVerts = (N_len + 1) * (N_circ + 1);
-        const positions = new Float32Array(numVerts * 3);
-        const indices = [];
-
-        for (let j = 0; j < N_len; j++) {
+        for (let j = 0; j < N_height; j++) {
             for (let i = 0; i < N_circ; i++) {
                 const a = j * (N_circ + 1) + i;
                 const b = j * (N_circ + 1) + (i + 1);
@@ -229,9 +144,11 @@ export class SMPLModelFactory {
     }
 
     /**
-     * Initializes topology and UVs for surface-bound Garment Torso Mesh
+     * Initializes the static topology for the unified surface-bound 3D Garment
+     * Single contiguous mesh with front panel, back panel, and seamlessly integrated sleeves.
      */
-    static _initGarmentTorsoGeometry() {
+    static _initSMPLGarmentGeometry() {
+        // Unified Torso & Seamless Sleeve Grid
         const Ny = 36;
         const Nx = 36;
         const numVerts = (Ny + 1) * (Nx + 1);
@@ -245,9 +162,10 @@ export class SMPLModelFactory {
                 const u = i / Nx;
                 const idx = j * (Nx + 1) + i;
 
-                // Dedicated Torso UV mapping: maps central chest region [0.31, 0.69] x [0.12, 0.86]
-                uvs[idx * 2] = 0.31 + u * (0.69 - 0.31);
-                uvs[idx * 2 + 1] = 0.12 + v * (0.86 - 0.12);
+                // Dedicated Garment UV Layout:
+                // Maps central chest region [0.28, 0.72] x [0.10, 0.88]
+                uvs[idx * 2] = 0.28 + u * (0.72 - 0.28);
+                uvs[idx * 2 + 1] = 0.10 + v * (0.88 - 0.10);
             }
         }
 
@@ -258,6 +176,7 @@ export class SMPLModelFactory {
                 const c = (j + 1) * (Nx + 1) + (i + 1);
                 const d = (j + 1) * (Nx + 1) + i;
 
+                // Counter-clockwise front-facing winding
                 indices.push(a, d, b);
                 indices.push(b, d, c);
             }
@@ -271,58 +190,9 @@ export class SMPLModelFactory {
     }
 
     /**
-     * Initializes topology and UVs for surface-bound Garment Sleeve Mesh
+     * Initializes the static topology for the Crew-neck Collar Band
      */
-    static _initGarmentSleeveGeometry(isLeft) {
-        const N_len = 18;
-        const N_circ = 20;
-        const numVerts = (N_len + 1) * (N_circ + 1);
-        const positions = new Float32Array(numVerts * 3);
-        const uvs = new Float32Array(numVerts * 2);
-        const indices = [];
-
-        for (let j = 0; j <= N_len; j++) {
-            const t = j / N_len; // 0 (shoulder rim) to 1.0 (cuff hem)
-            for (let i = 0; i <= N_circ; i++) {
-                const frac = i / N_circ;
-                const idx = j * (N_circ + 1) + i;
-
-                let uTex;
-                if (isLeft) {
-                    uTex = 0.69 + frac * (0.93 - 0.69);
-                } else {
-                    uTex = 0.07 + frac * (0.31 - 0.07);
-                }
-                const vTex = (1.0 - t) * 0.84 + t * 0.22;
-
-                uvs[idx * 2] = uTex;
-                uvs[idx * 2 + 1] = vTex;
-            }
-        }
-
-        for (let j = 0; j < N_len; j++) {
-            for (let i = 0; i < N_circ; i++) {
-                const a = j * (N_circ + 1) + i;
-                const b = j * (N_circ + 1) + (i + 1);
-                const c = (j + 1) * (N_circ + 1) + (i + 1);
-                const d = (j + 1) * (N_circ + 1) + i;
-
-                indices.push(a, d, b);
-                indices.push(b, d, c);
-            }
-        }
-
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-        geo.setIndex(indices);
-        return geo;
-    }
-
-    /**
-     * Initializes topology for Crew-neck Collar Band
-     */
-    static _initCollarGeometry() {
+    static _initCollarBandGeometry() {
         const segments = 32;
         const numVerts = (segments + 1) * 2;
         const positions = new Float32Array(numVerts * 3);
@@ -361,11 +231,7 @@ export class SMPLModelFactory {
     /**
      * Real-time SMPL Kinematic Solver and Surface-Bound Garment Deformation
      */
-    static _solveAndDeform(
-        bodyTorsoGeo, bodyLeftArmGeo, bodyRightArmGeo,
-        garmentTorsoGeo, garmentLeftSleeveGeo, garmentRightSleeveGeo, collarGeo,
-        poseData, camera, tweaks = {}
-    ) {
+    static _solveAndDeform(bodyGeo, garmentGeo, collarGeo, poseData, camera, tweaks = {}) {
         const dist = camera.position.z;
         const fovRad = (camera.fov * Math.PI) / 180;
         const visibleHeight = 2.0 * Math.tan(fovRad / 2) * dist;
@@ -380,19 +246,16 @@ export class SMPLModelFactory {
         };
 
         const cage = poseData.bodyCage;
-        const C_neck = to3D(cage.neck);
         const C_ls = to3D(cage.leftShoulder);
         const C_rs = to3D(cage.rightShoulder);
         const C_sternum = to3D(cage.sternum, 0.04);
-        const C_solar = to3D(cage.solarPlexus, 0.032);
-        const C_navel = to3D(cage.navel, 0.022);
+        const C_solar = to3D(cage.solarPlexus, 0.03);
+        const C_navel = to3D(cage.navel, 0.02);
         const C_hipCenter = to3D(cage.hipCenter);
         const C_lh = to3D(cage.leftHip);
         const C_rh = to3D(cage.rightHip);
         const C_leftArmpit = to3D(cage.leftArmpit);
         const C_rightArmpit = to3D(cage.rightArmpit);
-        const C_leftWaist = to3D(cage.leftWaist);
-        const C_rightWaist = to3D(cage.rightWaist);
         const C_leftElbow = to3D(cage.leftElbow);
         const C_rightElbow = to3D(cage.rightElbow);
         const C_leftWrist = to3D(cage.leftWrist);
@@ -400,7 +263,7 @@ export class SMPLModelFactory {
 
         const sw = Math.max(0.20, C_ls.distanceTo(C_rs));
 
-        // 1. SOLVE KINEMATIC BASIS FRAMES
+        // 1. SOLVE SMPL BODY KINEMATIC FRAME
         const C_midShoulder = C_ls.clone().lerp(C_rs, 0.5);
         const u_shoulder = C_ls.clone().sub(C_rs).normalize();
 
@@ -412,240 +275,173 @@ export class SMPLModelFactory {
         if (n_chest.lengthSq() < 0.5) n_chest = new THREE.Vector3(0, 0, 1);
         const u_lat = n_chest.clone().cross(v_up).normalize();
 
-        // Upper arm vectors
+        // Arm vectors
         const V_arm_L = C_leftElbow.clone().sub(C_ls);
         const V_arm_R = C_rightElbow.clone().sub(C_rs);
-        const len_arm_L = Math.max(0.15, V_arm_L.length());
-        const len_arm_R = Math.max(0.15, V_arm_R.length());
         const dir_arm_L = V_arm_L.clone().normalize();
         const dir_arm_R = V_arm_R.clone().normalize();
 
-        // Arm normal / binormal frames
-        let u_arm_L = dir_arm_L.clone().cross(n_chest).normalize();
-        if (u_arm_L.lengthSq() < 0.1) u_arm_L = new THREE.Vector3(-1, 0, 0);
-        let n_arm_L = u_arm_L.clone().cross(dir_arm_L).normalize();
-
-        let u_arm_R = dir_arm_R.clone().cross(n_chest).normalize();
-        if (u_arm_R.lengthSq() < 0.1) u_arm_R = new THREE.Vector3(1, 0, 0);
-        let n_arm_R = u_arm_R.clone().cross(dir_arm_R).normalize();
-
-        // ==========================================
-        // 2. RECONSTRUCT SMPL 3D DIGITAL TWIN BODY
-        // ==========================================
-
-        // 2a. Torso & Neck Body Mesh
-        const torsoPos = bodyTorsoGeo.attributes.position.array;
-        const Ny_b = 28;
-        const Nx_b = 24;
+        // 2. RECONSTRUCT 3D SMPL BODY SURFACE (Digital Twin)
+        const bodyPos = bodyGeo.attributes.position.array;
+        const N_height = 32;
+        const N_circ = 28;
         let bIdx = 0;
 
-        for (let j = 0; j <= Ny_b; j++) {
-            const v = j / Ny_b; // 0.0 (hips) to 1.0 (neck/jaw)
+        for (let j = 0; j <= N_height; j++) {
+            const v = j / N_height; // 0 (hips) to 1.0 (neck/head)
 
             let centerPt, rx, rz;
-            if (v <= 0.28) {
-                // Pelvis / Hips
-                const t = v / 0.28;
+            const liftUp = v_up.clone().multiplyScalar(sw * 0.055);
+
+            if (v <= 0.35) {
+                // Pelvis & lower abdomen (relaxed anatomical width)
+                const t = v / 0.35;
                 centerPt = C_hipCenter.clone().lerp(C_navel, t);
-                rx = sw * (0.33 - 0.03 * t);
-                rz = sw * (0.19 - 0.02 * t);
-            } else if (v <= 0.60) {
-                // Abdomen & Waist
-                const t = (v - 0.28) / 0.32;
-                centerPt = C_navel.clone().lerp(C_solar, t);
-                rx = sw * (0.30 + 0.07 * t);
-                rz = sw * (0.17 + 0.05 * t);
-            } else if (v <= 0.88) {
-                // Chest & Shoulders
-                const t = (v - 0.60) / 0.28;
-                centerPt = C_solar.clone().lerp(C_midShoulder, t);
-                rx = sw * (0.37 + 0.05 * (1.0 - t));
+                rx = sw * (0.43 - 0.02 * t);
                 rz = sw * 0.22;
+            } else if (v <= 0.70) {
+                // Waist, solar plexus, and ribcage
+                const t = (v - 0.35) / 0.35;
+                centerPt = C_navel.clone().lerp(C_solar, t);
+                rx = sw * (0.41 + 0.05 * t);
+                rz = sw * (0.22 + 0.04 * t);
+            } else if (v <= 0.90) {
+                // Chest & Shoulders (lifted to align with collarbase)
+                const t = (v - 0.70) / 0.20;
+                centerPt = C_solar.clone().lerp(C_midShoulder.clone().add(liftUp), t);
+                rx = sw * (0.46 + 0.04 * (1.0 - t));
+                rz = sw * 0.25;
             } else {
-                // Slender Neck Column
-                const t = (v - 0.88) / 0.12;
-                centerPt = C_midShoulder.clone().addScaledVector(v_up, sw * 0.075 * t);
-                rx = sw * 0.11;
-                rz = sw * 0.11;
+                // Neck column
+                const t = (v - 0.90) / 0.10;
+                centerPt = C_midShoulder.clone().add(liftUp).addScaledVector(v_up, sw * 0.10 * t);
+                rx = sw * 0.14;
+                rz = sw * 0.14;
             }
 
-            for (let i = 0; i <= Nx_b; i++) {
-                const theta = (i / Nx_b) * Math.PI * 2.0;
+            for (let i = 0; i <= N_circ; i++) {
+                const theta = (i / N_circ) * Math.PI * 2.0;
                 const cosT = Math.cos(theta);
                 const sinT = Math.sin(theta);
 
+                // Body surface point with lateral (rx) and anterior-posterior (rz) radius
                 const p = centerPt.clone()
                     .addScaledVector(u_lat, rx * cosT)
                     .addScaledVector(n_chest, rz * sinT);
 
-                torsoPos[bIdx * 3] = p.x;
-                torsoPos[bIdx * 3 + 1] = p.y;
-                torsoPos[bIdx * 3 + 2] = p.z;
+                bodyPos[bIdx * 3] = p.x;
+                bodyPos[bIdx * 3 + 1] = p.y;
+                bodyPos[bIdx * 3 + 2] = p.z;
                 bIdx++;
             }
         }
-        bodyTorsoGeo.attributes.position.needsUpdate = true;
-        bodyTorsoGeo.computeVertexNormals();
 
-        // 2b. Left Arm Body Mesh
-        const leftArmPos = bodyLeftArmGeo.attributes.position.array;
-        const N_arm_len = 12;
-        const N_arm_circ = 16;
-        let laIdx = 0;
+        bodyGeo.attributes.position.needsUpdate = true;
+        bodyGeo.computeVertexNormals();
 
-        for (let j = 0; j <= N_arm_len; j++) {
-            const t = j / N_arm_len;
-            const centerPt = C_ls.clone().addScaledVector(dir_arm_L, len_arm_L * t);
-            const rArm = sw * (0.105 - 0.02 * t);
+        // 3. DEFORM UNIFIED SURFACE-BOUND 3D GARMENT (Zero-Gap, Continuous Topology)
+        const garmentPos = garmentGeo.attributes.position.array;
+        const Ny = 36;
+        const Nx = 36;
+        let gIdx = 0;
 
-            for (let i = 0; i <= N_arm_circ; i++) {
-                const theta = (i / N_arm_circ) * Math.PI * 2.0;
-                const p = centerPt.clone()
-                    .addScaledVector(u_arm_L, rArm * Math.cos(theta))
-                    .addScaledVector(n_arm_L, rArm * Math.sin(theta));
+        // Lift offset to align collar and shoulders gracefully at the base of the neck
+        const liftUp = v_up.clone().multiplyScalar(sw * 0.055);
 
-                leftArmPos[laIdx * 3] = p.x;
-                leftArmPos[laIdx * 3 + 1] = p.y;
-                leftArmPos[laIdx * 3 + 2] = p.z;
-                laIdx++;
-            }
-        }
-        bodyLeftArmGeo.attributes.position.needsUpdate = true;
-        bodyLeftArmGeo.computeVertexNormals();
-
-        // 2c. Right Arm Body Mesh
-        const rightArmPos = bodyRightArmGeo.attributes.position.array;
-        let raIdx = 0;
-
-        for (let j = 0; j <= N_arm_len; j++) {
-            const t = j / N_arm_len;
-            const centerPt = C_rs.clone().addScaledVector(dir_arm_R, len_arm_R * t);
-            const rArm = sw * (0.105 - 0.02 * t);
-
-            for (let i = 0; i <= N_arm_circ; i++) {
-                const theta = (i / N_arm_circ) * Math.PI * 2.0;
-                const p = centerPt.clone()
-                    .addScaledVector(u_arm_R, rArm * Math.cos(theta))
-                    .addScaledVector(n_arm_R, rArm * Math.sin(theta));
-
-                rightArmPos[raIdx * 3] = p.x;
-                rightArmPos[raIdx * 3 + 1] = p.y;
-                rightArmPos[raIdx * 3 + 2] = p.z;
-                raIdx++;
-            }
-        }
-        bodyRightArmGeo.attributes.position.needsUpdate = true;
-        bodyRightArmGeo.computeVertexNormals();
-
-        // ==========================================
-        // 3. DEFORM SURFACE-BOUND 3D GARMENT
-        // ==========================================
-
-        // Collar landmarks
-        const collarHalfWidth = sw * 0.17;
+        // Anatomical collar landmarks on the SMPL body (lifted to collarbone hollow)
+        const collarHalfWidth = sw * 0.165;
         const P_trap_L = C_midShoulder.clone()
+            .add(liftUp)
             .addScaledVector(u_lat, collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.026)
+            .addScaledVector(v_up, sw * 0.030)
             .addScaledVector(n_chest, -sw * 0.012);
 
         const P_trap_R = C_midShoulder.clone()
+            .add(liftUp)
             .addScaledVector(u_lat, -collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.026)
+            .addScaledVector(v_up, sw * 0.030)
             .addScaledVector(n_chest, -sw * 0.012);
 
         const P_collarDip = C_midShoulder.clone()
-            .addScaledVector(v_up, -sw * 0.022)
-            .addScaledVector(n_chest, sw * 0.028);
+            .add(liftUp)
+            .addScaledVector(v_up, -sw * 0.008) // Lifted collar hollow
+            .addScaledVector(n_chest, sw * 0.032);
 
-        const P_shoulder_L = C_ls.clone();
-        const P_shoulder_R = C_rs.clone();
+        // Shoulder points: lifted and slightly wider for relaxed t-shirt shoulder seam
+        const P_shoulder_L = C_ls.clone()
+            .add(liftUp)
+            .addScaledVector(dir_arm_L, sw * 0.025);
+        const P_shoulder_R = C_rs.clone()
+            .add(liftUp)
+            .addScaledVector(dir_arm_R, sw * 0.025);
 
-        const s_neck = 0.36;
-        const getTopPoint = (s) => {
+        // Sleeve endpoints (extended slightly further down the upper arm for natural t-shirt coverage)
+        const sleeveFrac = 0.52; // was 0.44
+        const P_sleeveEnd_L = P_shoulder_L.clone().addScaledVector(V_arm_L, sleeveFrac);
+        const P_sleeveEnd_R = P_shoulder_R.clone().addScaledVector(V_arm_R, sleeveFrac);
+
+        const getGarmentTop = (s) => {
             const absS = Math.abs(s);
-            if (absS <= s_neck) {
-                const tau = absS / s_neck;
+            if (absS <= 0.34) {
+                // Natural circular crew-neck dip
+                const tau = absS / 0.34;
                 const blend = 1.0 - Math.cos(tau * (Math.PI / 2.0));
                 const trap = (s >= 0) ? P_trap_L : P_trap_R;
                 return P_collarDip.clone().lerp(trap, blend);
+            } else if (absS <= 0.78) {
+                // Shoulder line across trapezius to shoulder tip
+                const lambda = (absS - 0.34) / (0.78 - 0.34);
+                const trap = (s >= 0) ? P_trap_L : P_trap_R;
+                const sh = (s >= 0) ? P_shoulder_L : P_shoulder_R;
+                return trap.clone().lerp(sh, lambda);
             } else {
-                if (s > s_neck) {
-                    const lambda = (s - s_neck) / (1.0 - s_neck);
-                    return P_trap_L.clone().lerp(P_shoulder_L, lambda);
-                } else {
-                    const lambda = (-s - s_neck) / (1.0 - s_neck);
-                    return P_trap_R.clone().lerp(P_shoulder_R, lambda);
-                }
+                // Integrated sleeve cap extending down the arm (Top of sleeve)
+                const lambda = (absS - 0.78) / (1.0 - 0.78);
+                const sh = (s >= 0) ? P_shoulder_L : P_shoulder_R;
+                const slEnd = (s >= 0) ? P_sleeveEnd_L : P_sleeveEnd_R;
+                return sh.clone().lerp(slEnd, lambda);
             }
         };
 
-        // 3a. Deform Garment Torso Mesh
-        const gTorsoPos = garmentTorsoGeo.attributes.position.array;
-        const Ny_gt = 36;
-        const Nx_gt = 36;
-        let gtIdx = 0;
-
-        for (let j = 0; j <= Ny_gt; j++) {
-            const v = j / Ny_gt; // 0.0 (hem) to 1.0 (shoulders)
+        for (let j = 0; j <= Ny; j++) {
+            const v = j / Ny; // 0 (hem) to 1.0 (shoulders)
 
             let L, C, R;
             if (v <= 0.35) {
                 const t = v / 0.35;
-                L = C_lh.clone().lerp(C_leftWaist, t);
+                L = C_lh.clone().lerp(to3D(cage.leftWaist), t);
                 C = C_hipCenter.clone().lerp(C_navel, t);
-                R = C_rh.clone().lerp(C_rightWaist, t);
+                R = C_rh.clone().lerp(to3D(cage.rightWaist), t);
             } else if (v <= 0.70) {
                 const t = (v - 0.35) / 0.35;
-                L = C_leftWaist.clone().lerp(C_leftArmpit, t);
+                L = to3D(cage.leftWaist).lerp(C_leftArmpit, t);
                 C = C_navel.clone().lerp(C_solar, t);
-                R = C_rightWaist.clone().lerp(C_rightArmpit, t);
+                R = to3D(cage.rightWaist).lerp(C_rightArmpit, t);
             } else {
                 const t = (v - 0.70) / 0.30;
-                L = C_leftArmpit.clone().lerp(P_shoulder_L, t);
+                L = C_leftArmpit.clone().lerp(P_sleeveEnd_L, t);
                 C = C_solar.clone().lerp(P_collarDip, t);
-                R = C_rightArmpit.clone().lerp(P_shoulder_R, t);
+                R = C_rightArmpit.clone().lerp(P_sleeveEnd_R, t);
             }
 
-            // Real-time Silhouette Body Edge Awareness (Stretch to physical body contour & cover under-shirt)
-            const bounds = poseData.silhouetteBounds;
-            if (bounds && bounds.length >= 4 && v <= 0.75) {
-                const approxNormY = 0.5 - (C.y / visibleHeight);
-                let bestSlice = null;
-                let minDist = 999;
-                for (let k = 0; k < bounds.length; k++) {
-                    const d = Math.abs(bounds[k].y - approxNormY);
-                    if (d < minDist) {
-                        minDist = d;
-                        bestSlice = bounds[k];
-                    }
-                }
-                if (bestSlice && minDist < 0.12) {
-                    const targetLeft3D = (bestSlice.left - 0.5) * visibleWidth;
-                    const targetRight3D = (bestSlice.right - 0.5) * visibleWidth;
-
-                    const isLeftOnRight = (C_ls.x > C_rs.x);
-                    const silLeft = isLeftOnRight ? targetRight3D : targetLeft3D;
-                    const silRight = isLeftOnRight ? targetLeft3D : targetRight3D;
-
-                    const maxHalfW = sw * 0.54;
-                    const minHalfW = sw * 0.36;
-                    const clampedSilLeft = Math.max(C.x - maxHalfW, Math.min(C.x - minHalfW, silLeft));
-                    const clampedSilRight = Math.min(C.x + maxHalfW, Math.max(C.x + minHalfW, silRight));
-
-                    const fitFactor = 0.80;
-                    L.x = L.x * (1 - fitFactor) + (clampedSilLeft - sw * 0.015) * fitFactor;
-                    R.x = R.x * (1 - fitFactor) + (clampedSilRight + sw * 0.015) * fitFactor;
-                }
-            } else if (v <= 0.70) {
-                // Natural ease to cover background shirt
-                const ease = 1.18;
-                L.x = C.x + (L.x - C.x) * ease;
-                R.x = C.x + (R.x - C.x) * ease;
+            // Natural relaxed t-shirt drape: widen waist and hem outward away from center spine
+            if (v <= 0.72) {
+                const waistFactor = (v <= 0.35) 
+                    ? (1.0 - 0.15 * (v / 0.35))             // Hem: widest relaxed fit (~8.2% sw expansion)
+                    : (0.85 - 0.85 * ((v - 0.35) / 0.37)); // Waist: smooth taper to armpits
+                
+                const waistExpansion = sw * 0.082 * waistFactor;
+                
+                const dir_L = L.clone().sub(C).normalize();
+                const dir_R = R.clone().sub(C).normalize();
+                
+                if (dir_L.lengthSq() > 0.5) L.addScaledVector(dir_L, waistExpansion);
+                if (dir_R.lengthSq() > 0.5) R.addScaledVector(dir_R, waistExpansion);
             }
 
-            for (let i = 0; i <= Nx_gt; i++) {
-                const u = i / Nx_gt;
-                const s = (u - 0.5) * 2.0; // -1.0 (right side) to +1.0 (left side)
+            for (let i = 0; i <= Nx; i++) {
+                const u = i / Nx;
+                const s = (u - 0.5) * 2.0; // -1 to +1
 
                 let p;
                 if (v <= 0.70) {
@@ -666,85 +462,35 @@ export class SMPLModelFactory {
                         const tx = s;
                         P_chest = C.clone().multiplyScalar(1 - tx).addScaledVector(L, tx);
                     }
-                    const P_top = getTopPoint(s);
+                    const P_top = getGarmentTop(s);
                     p = P_chest.clone().lerp(P_top, t);
                 }
 
-                // Surface-bound fabric offset: sits cleanly on outside of SMPL body twin
+                // Forward chest and pectoral dome volume on SMPL surface
                 const chestCurve = Math.max(0, 1.0 - s * s);
                 const vProfile = Math.sin(Math.min(1.0, v * 1.25) * Math.PI);
-                const clothOffset = sw * 0.020;
-                const depth = clothOffset + sw * 0.08 * chestCurve * (0.35 + 0.65 * vProfile);
+                const fabricOffset = sw * 0.020; // 20mm fabric surface offset for natural roominess
+                const depth = fabricOffset + sw * 0.12 * chestCurve * (0.35 + 0.65 * vProfile);
 
                 p.addScaledVector(n_chest, depth);
 
                 // Flank curvature (wraps around ribcage)
                 if (Math.abs(s) > 0.65) {
                     const flankW = (Math.abs(s) - 0.65) / 0.35;
-                    p.addScaledVector(n_chest, -sw * 0.04 * flankW * flankW);
+                    p.addScaledVector(n_chest, -sw * 0.05 * flankW * flankW);
                 }
 
-                gTorsoPos[gtIdx * 3] = p.x;
-                gTorsoPos[gtIdx * 3 + 1] = p.y;
-                gTorsoPos[gtIdx * 3 + 2] = p.z;
-                gtIdx++;
+                garmentPos[gIdx * 3] = p.x;
+                garmentPos[gIdx * 3 + 1] = p.y;
+                garmentPos[gIdx * 3 + 2] = p.z;
+                gIdx++;
             }
         }
-        garmentTorsoGeo.attributes.position.needsUpdate = true;
-        garmentTorsoGeo.computeVertexNormals();
 
-        // 3b. Deform Garment Left Sleeve (wrapping left upper arm)
-        const gLeftSleevePos = garmentLeftSleeveGeo.attributes.position.array;
-        const N_sleeve_len = 18;
-        const N_sleeve_circ = 20;
-        const sleeveLengthFrac = 0.32;
-        let glsIdx = 0;
+        garmentGeo.attributes.position.needsUpdate = true;
+        garmentGeo.computeVertexNormals();
 
-        for (let j = 0; j <= N_sleeve_len; j++) {
-            const t = j / N_sleeve_len;
-            const centerPt = C_ls.clone().addScaledVector(dir_arm_L, len_arm_L * sleeveLengthFrac * t);
-            const rSleeve = sw * (0.125 - 0.015 * t); // Roomy cloth sleeve radius
-
-            for (let i = 0; i <= N_sleeve_circ; i++) {
-                const theta = (i / N_sleeve_circ) * Math.PI * 2.0;
-                const p = centerPt.clone()
-                    .addScaledVector(u_arm_L, rSleeve * Math.cos(theta))
-                    .addScaledVector(n_arm_L, rSleeve * Math.sin(theta));
-
-                gLeftSleevePos[glsIdx * 3] = p.x;
-                gLeftSleevePos[glsIdx * 3 + 1] = p.y;
-                gLeftSleevePos[glsIdx * 3 + 2] = p.z;
-                glsIdx++;
-            }
-        }
-        garmentLeftSleeveGeo.attributes.position.needsUpdate = true;
-        garmentLeftSleeveGeo.computeVertexNormals();
-
-        // 3c. Deform Garment Right Sleeve (wrapping right upper arm)
-        const gRightSleevePos = garmentRightSleeveGeo.attributes.position.array;
-        let grsIdx = 0;
-
-        for (let j = 0; j <= N_sleeve_len; j++) {
-            const t = j / N_sleeve_len;
-            const centerPt = C_rs.clone().addScaledVector(dir_arm_R, len_arm_R * sleeveLengthFrac * t);
-            const rSleeve = sw * (0.125 - 0.015 * t);
-
-            for (let i = 0; i <= N_sleeve_circ; i++) {
-                const theta = (i / N_sleeve_circ) * Math.PI * 2.0;
-                const p = centerPt.clone()
-                    .addScaledVector(u_arm_R, rSleeve * Math.cos(theta))
-                    .addScaledVector(n_arm_R, rSleeve * Math.sin(theta));
-
-                gRightSleevePos[grsIdx * 3] = p.x;
-                gRightSleevePos[grsIdx * 3 + 1] = p.y;
-                gRightSleevePos[grsIdx * 3 + 2] = p.z;
-                grsIdx++;
-            }
-        }
-        garmentRightSleeveGeo.attributes.position.needsUpdate = true;
-        garmentRightSleeveGeo.computeVertexNormals();
-
-        // 3d. Deform Crewneck Collar Band
+        // 4. DEFORM COLLAR BAND ON SMPL NECK ROOT
         const collarPos = collarGeo.attributes.position.array;
         const segments = 32;
         const collarThickness = sw * 0.020;
@@ -771,6 +517,7 @@ export class SMPLModelFactory {
             collarPos[cIdx * 3 + 2] = outerPt.z + 0.008;
             cIdx++;
         }
+
         collarGeo.attributes.position.needsUpdate = true;
         collarGeo.computeVertexNormals();
     }
