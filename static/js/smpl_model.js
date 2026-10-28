@@ -364,7 +364,8 @@ export class SMPLModelFactory {
         let n_chest = v_up.clone().cross(u_shoulder).normalize();
         if (n_chest.z < 0) n_chest.negate();
         if (n_chest.lengthSq() < 0.5) n_chest = new THREE.Vector3(0, 0, 1);
-        const u_lat = n_chest.clone().cross(v_up).normalize();
+        let u_lat = v_up.clone().cross(n_chest).normalize();
+        if (u_lat.dot(u_shoulder) < 0) u_lat.negate();
 
         // Arm vectors
         const V_arm_L = C_leftElbow.clone().sub(C_ls);
@@ -458,13 +459,13 @@ export class SMPLModelFactory {
             .addScaledVector(v_up, sw * 0.005) // Lifted collar hollow
             .addScaledVector(n_chest, sw * 0.032);
 
-        // Shoulder points: lifted and slightly wider for relaxed t-shirt shoulder seam
+        // Shoulder points: extended over deltoid cap with natural t-shirt shoulder seam width
         const P_shoulder_L = C_ls.clone()
             .add(liftUp)
-            .addScaledVector(dir_arm_L, sw * 0.025);
+            .addScaledVector(u_lat, sw * 0.080);
         const P_shoulder_R = C_rs.clone()
             .add(liftUp)
-            .addScaledVector(dir_arm_R, sw * 0.025);
+            .addScaledVector(u_lat, -sw * 0.080);
 
         // Sleeve endpoints (extended slightly further down the upper arm for natural t-shirt coverage)
         const sleeveFrac = 0.52; // was 0.44
@@ -601,7 +602,7 @@ export class SMPLModelFactory {
                 const vertexH = p.clone().sub(P_hemCenter).dot(v_up);
                 const relH = Math.max(0.0, Math.min(1.05, vertexH / totalTorsoH));
                 const vTorso = 0.11 + relH * (0.86 - 0.11);
-                const uTorso = 0.50 + s * 0.22; // Clean torso mapping across [0.28, 0.72]
+                const uTorso = 0.50 + s * 0.28; // Clean torso mapping across [0.22, 0.78]
 
                 const uvIdx = j * (Nx + 1) + i;
                 garmentUvs[uvIdx * 2] = uTorso;
@@ -663,13 +664,13 @@ export class SMPLModelFactory {
         if (leftSleeveGeo) {
             SMPLModelFactory._deformSleeveCanopy(
                 leftSleeveGeo, true, P_shoulder_L, C_leftArmpit, C_leftElbow,
-                v_up, u_lat, n_chest, sw
+                v_up, u_lat, n_chest, sw, P_hemCenter, totalTorsoH
             );
         }
         if (rightSleeveGeo) {
             SMPLModelFactory._deformSleeveCanopy(
                 rightSleeveGeo, false, P_shoulder_R, C_rightArmpit, C_rightElbow,
-                v_up, u_lat, n_chest, sw
+                v_up, u_lat, n_chest, sw, P_hemCenter, totalTorsoH
             );
         }
     }
@@ -678,34 +679,39 @@ export class SMPLModelFactory {
      * Deforms an Arched Half-Cylinder Sleeve Canopy wrapping over front and lateral upper arm
      * (Eliminates hollow cylinder pipe look while naturally covering real undershirt sleeves)
      */
-    static _deformSleeveCanopy(sleeveGeo, isLeft, P_shoulder, C_armpit, C_elbow, v_up, u_lat, n_chest, sw) {
+    static _deformSleeveCanopy(sleeveGeo, isLeft, P_shoulder, C_armpit, C_elbow, v_up, u_lat, n_chest, sw, P_hemCenter, totalTorsoH) {
         const pos = sleeveGeo.attributes.position.array;
+        const uvs = sleeveGeo.attributes.uv.array;
         const colors = sleeveGeo.attributes.color?.array;
         const N_len = 16;
         const N_circ = 16;
         let sIdx = 0;
 
-        const latSign = isLeft ? 1.0 : -1.0;
-
         // Arm bone vector (shoulder to elbow)
         const V_arm = C_elbow.clone().sub(P_shoulder);
         const armLen = V_arm.length();
+
+        // Outward lateral direction from body:
+        // Left arm is on person's left (+u_lat), Right arm is on person's right (-u_lat)
+        const outwardLat = isLeft ? u_lat.clone() : u_lat.clone().negate();
 
         let dir_arm;
         if (armLen > 0.05) {
             dir_arm = V_arm.clone().divideScalar(armLen);
         } else {
-            // Natural resting arm angle down and slightly out
-            dir_arm = v_up.clone().multiplyScalar(-0.88).addScaledVector(u_lat, latSign * 0.30).normalize();
+            // Natural resting arm angle down and outward
+            dir_arm = v_up.clone().multiplyScalar(-0.90).addScaledVector(outwardLat, 0.35).normalize();
         }
 
-        // Lateral vector perpendicular to dir_arm, pointing strictly away from torso
-        const bodyLat = u_lat.clone().multiplyScalar(latSign);
-        let u_lat_arm = bodyLat.clone().addScaledVector(dir_arm, -bodyLat.dot(dir_arm));
+        // Lateral vector perpendicular to dir_arm, pointing strictly away from torso along the arm
+        let u_lat_arm = outwardLat.clone().addScaledVector(dir_arm, -outwardLat.dot(dir_arm));
         if (u_lat_arm.lengthSq() > 0.01) {
             u_lat_arm.normalize();
         } else {
-            u_lat_arm = dir_arm.clone().cross(v_up).normalize().multiplyScalar(-latSign);
+            u_lat_arm = v_up.clone().cross(dir_arm).normalize();
+        }
+        if (u_lat_arm.dot(outwardLat) < 0) {
+            u_lat_arm.negate();
         }
 
         // Forward normal perpendicular to dir_arm and u_lat_arm, pointing towards camera (+Z)
@@ -718,20 +724,20 @@ export class SMPLModelFactory {
         if (n_arm.dot(n_chest) < 0) n_arm.negate();
         if (n_arm.z < 0) n_arm.z = Math.abs(n_arm.z);
 
-        // Sleeve length: Covers 58% of upper arm to completely cover real undershirt sleeves
+        // Sleeve length: Covers 52% of upper arm to completely cover real undershirt sleeves
         const effectiveArmLen = (armLen > 0.05) ? armLen : sw * 0.70;
-        const sleeveLength = Math.max(sw * 0.38, Math.min(sw * 0.52, effectiveArmLen * 0.58));
+        const sleeveLength = Math.max(sw * 0.34, Math.min(sw * 0.48, effectiveArmLen * 0.52));
 
-        // Root origin along the glenohumeral axis (between shoulder tip and armpit)
-        const C_sleeveRoot = P_shoulder.clone().lerp(C_armpit, 0.38);
-        const C_sleeveCuff = C_sleeveRoot.clone().addScaledVector(dir_arm, sleeveLength);
+        // Centerline root between shoulder tip and armpit fold
+        const P_armRoot = P_shoulder.clone().lerp(C_armpit, 0.35);
+        const C_sleeveCuff = P_armRoot.clone().addScaledVector(dir_arm, sleeveLength);
 
         // Radii for natural relaxed t-shirt drape:
         // Shoulder cap is roomier, cuff is tailored
-        const r_lat_top = sw * 0.165;
-        const r_depth_top = sw * 0.150;
-        const r_lat_cuff = sw * 0.140;
-        const r_depth_cuff = sw * 0.125;
+        const r_lat_top = sw * 0.160;
+        const r_depth_top = sw * 0.145;
+        const r_lat_cuff = sw * 0.138;
+        const r_depth_cuff = sw * 0.120;
 
         for (let j = 0; j <= N_len; j++) {
             const t = j / N_len; // 0.0 (shoulder seam) to 1.0 (cuff hem)
@@ -740,19 +746,19 @@ export class SMPLModelFactory {
             const r_depth = r_depth_top * (1.0 - t) + r_depth_cuff * t;
 
             // Seam weld weight at shoulder armhole
-            const seamWeight = Math.max(0, 1.0 - t / 0.30);
+            const seamWeight = Math.max(0, 1.0 - t / 0.35);
             const w = seamWeight * seamWeight * (3 - 2 * seamWeight);
 
             // Center along arm length
-            const C_curr = C_sleeveRoot.clone().lerp(C_sleeveCuff, t);
+            const C_curr = P_armRoot.clone().lerp(C_sleeveCuff, t);
 
             for (let i = 0; i <= N_circ; i++) {
                 const alpha = i / N_circ; // 0 (inner armpit) to 1.0 (outer deltoid edge)
                 const beta = (alpha - 0.5) * 2.0; // -1.0 (medial) to +1.0 (lateral)
 
                 // Arched half-cylinder canopy:
-                // Angle spans from -99 deg (-0.55*PI) to +99 deg (+0.55*PI)
-                const phi = beta * (Math.PI * 0.55);
+                // Angle spans from -97 deg (-0.54*PI) to +97 deg (+0.54*PI)
+                const phi = beta * (Math.PI * 0.54);
                 const disp_lat = Math.sin(phi) * r_lat;
                 const disp_fwd = Math.cos(phi) * r_depth;
 
@@ -762,15 +768,15 @@ export class SMPLModelFactory {
                     .addScaledVector(n_arm, disp_fwd);
 
                 // Edge tucking at extreme medial and lateral edges to wrap around arm silhouette
-                const edgeTuck = Math.pow(Math.abs(beta), 2.5) * sw * 0.022;
+                const edgeTuck = Math.pow(Math.abs(beta), 2.5) * sw * 0.020;
                 p.addScaledVector(n_arm, -edgeTuck);
 
                 // Seam blending at armhole (weld to torso shoulder seam and armpit fold)
                 if (w > 0.001) {
                     const seamAlpha = (beta + 1.0) * 0.5; // 0 (armpit) to 1 (shoulder)
                     const P_seamAnchor = C_armpit.clone().lerp(P_shoulder, seamAlpha);
-                    const seamArch = Math.sin(seamAlpha * Math.PI) * sw * 0.035;
-                    const P_seam = P_seamAnchor.addScaledVector(n_chest, seamArch + sw * 0.015);
+                    const seamArch = Math.sin(seamAlpha * Math.PI) * sw * 0.040;
+                    const P_seam = P_seamAnchor.addScaledVector(n_chest, seamArch + sw * 0.020);
                     p.lerp(P_seam, w);
                 }
 
@@ -784,6 +790,24 @@ export class SMPLModelFactory {
                 pos[sIdx * 3] = p.x;
                 pos[sIdx * 3 + 1] = p.y;
                 pos[sIdx * 3 + 2] = p.z;
+
+                // Dynamic Spine-Aligned UV Mapping:
+                // Guarantees horizontal stripes on sleeves line up with the torso stripes!
+                const vertexH = p.clone().sub(P_hemCenter).dot(v_up);
+                const relH = Math.max(0.0, Math.min(1.05, vertexH / totalTorsoH));
+                const vTex = 0.11 + relH * (0.86 - 0.11);
+
+                let uTex;
+                if (isLeft) {
+                    // Left sleeve in image: [0.78, 0.97]
+                    uTex = 0.78 + t * 0.19 + beta * 0.02;
+                } else {
+                    // Right sleeve in image: [0.03, 0.22]
+                    uTex = 0.22 - t * 0.19 - beta * 0.02;
+                }
+
+                uvs[sIdx * 2] = uTex;
+                uvs[sIdx * 2 + 1] = vTex;
 
                 // 3D Ambient lighting and shading
                 if (colors) {
@@ -803,6 +827,7 @@ export class SMPLModelFactory {
         }
 
         sleeveGeo.attributes.position.needsUpdate = true;
+        sleeveGeo.attributes.uv.needsUpdate = true;
         if (colors) sleeveGeo.attributes.color.needsUpdate = true;
         sleeveGeo.computeVertexNormals();
     }
