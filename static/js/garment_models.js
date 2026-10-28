@@ -524,6 +524,18 @@ export class GarmentModelFactory {
             }
         };
 
+        // Armpit-level anatomical center along the spine (matches armpit elevation)
+        const C_midArmpit = C_leftArmpit.clone().lerp(C_rightArmpit, 0.5);
+        const armpitElev = C_midArmpit.clone().sub(C_hipCenter).dot(v_up);
+        const C_chestLevel = C_hipCenter.clone()
+            .addScaledVector(v_up, armpitElev)
+            .addScaledVector(n_chest, sw * 0.035);
+
+        const torsoUvs = geo.attributes.uv.array;
+        const P_hemCenter = C_hipCenter.clone().subScaledVector(v_up, sw * 0.05);
+        const P_topShoulder = C_midShoulder.clone().addScaledVector(v_up, sw * 0.04);
+        const totalTorsoH = Math.max(0.1, P_topShoulder.clone().sub(P_hemCenter).dot(v_up));
+
         let idx = 0;
         for (let j = 0; j <= Ny; j++) {
             const v = j / Ny; // 0.0 (hem) to 1.0 (shoulders)
@@ -537,7 +549,7 @@ export class GarmentModelFactory {
             } else if (v <= 0.70) {
                 const t = (v - 0.35) / 0.35;
                 L = C_leftWaist.clone().lerp(C_leftArmpit, t);
-                C = C_navel.clone().lerp(C_solar, t);
+                C = C_navel.clone().lerp(C_chestLevel, t);
                 R = C_rightWaist.clone().lerp(C_rightArmpit, t);
             } else {
                 // Upper torso region (chest to shoulders)
@@ -553,7 +565,7 @@ export class GarmentModelFactory {
                 R_armpit.addScaledVector(u_lat, -sw * 0.03 * armholeArch);
 
                 L = L_armpit.clone().lerp(P_shoulder_L, t);
-                C = C_solar.clone().lerp(P_collarDip, t);
+                C = C_chestLevel.clone().lerp(P_collarDip, t);
                 R = R_armpit.clone().lerp(P_shoulder_R, t);
             }
 
@@ -630,11 +642,23 @@ export class GarmentModelFactory {
                 pos[idx * 3] = px;
                 pos[idx * 3 + 1] = py;
                 pos[idx * 3 + 2] = pz;
+
+                // Dynamic Planar Texture Coordinates:
+                const pVec = new THREE.Vector3(px, py, pz);
+                const vertexH = pVec.sub(P_hemCenter).dot(v_up);
+                const relH = Math.max(0.0, Math.min(1.05, vertexH / totalTorsoH));
+                const vTex = 0.12 + relH * (0.86 - 0.12);
+                const uTex = 0.31 + u * (0.69 - 0.31);
+
+                torsoUvs[idx * 2] = uTex;
+                torsoUvs[idx * 2 + 1] = vTex;
+
                 idx++;
             }
         }
 
         geo.attributes.position.needsUpdate = true;
+        geo.attributes.uv.needsUpdate = true;
         geo.computeVertexNormals();
     }
 

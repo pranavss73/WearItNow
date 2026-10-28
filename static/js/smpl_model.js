@@ -403,6 +403,19 @@ export class SMPLModelFactory {
             }
         };
 
+        // Armpit-level anatomical center along the spine (matches armpit elevation)
+        const C_midArmpit = C_leftArmpit.clone().lerp(C_rightArmpit, 0.5);
+        const armpitElev = C_midArmpit.clone().sub(C_hipCenter).dot(v_up);
+        const C_chestLevel = C_hipCenter.clone()
+            .addScaledVector(v_up, armpitElev)
+            .addScaledVector(n_chest, sw * 0.035);
+
+        // Torso spine reference frame for planar vertical texture mapping
+        const garmentUvs = garmentGeo.attributes.uv.array;
+        const P_hemCenter = C_hipCenter.clone().subScaledVector(v_up, sw * 0.05);
+        const P_topShoulder = C_midShoulder.clone().add(liftUp).addScaledVector(v_up, sw * 0.02);
+        const totalTorsoH = Math.max(0.1, P_topShoulder.clone().sub(P_hemCenter).dot(v_up));
+
         for (let j = 0; j <= Ny; j++) {
             const v = j / Ny; // 0 (hem) to 1.0 (shoulders)
 
@@ -415,22 +428,22 @@ export class SMPLModelFactory {
             } else if (v <= 0.70) {
                 const t = (v - 0.35) / 0.35;
                 L = to3D(cage.leftWaist).lerp(C_leftArmpit, t);
-                C = C_navel.clone().lerp(C_solar, t);
+                C = C_navel.clone().lerp(C_chestLevel, t);
                 R = to3D(cage.rightWaist).lerp(C_rightArmpit, t);
             } else {
                 const t = (v - 0.70) / 0.30;
                 L = C_leftArmpit.clone().lerp(P_sleeveEnd_L, t);
-                C = C_solar.clone().lerp(P_collarDip, t);
+                C = C_chestLevel.clone().lerp(P_collarDip, t);
                 R = C_rightArmpit.clone().lerp(P_sleeveEnd_R, t);
             }
 
             // Natural relaxed t-shirt drape: widen waist and hem outward away from center spine
             if (v <= 0.78) {
-                const waistFactor = (v <= 0.40) 
-                    ? (1.0 - 0.08 * (v / 0.40))             // Hem & Lower waist: generous relaxed width (~13.5% sw expansion)
-                    : (0.92 - 0.92 * ((v - 0.40) / 0.38)); // Mid waist to armpits: smooth straight cut to armpits
+                const waistFactor = (v <= 0.45) 
+                    ? (1.0 - 0.05 * (v / 0.45))             // Hem & Lower waist: generous relaxed width (~17.0% sw expansion)
+                    : (0.95 - 0.95 * ((v - 0.45) / 0.33)); // Mid waist to armpits: smooth straight cut to armpits
                 
-                const waistExpansion = sw * 0.135 * waistFactor;
+                const waistExpansion = sw * 0.170 * waistFactor;
                 
                 const dir_L = L.clone().sub(C).normalize();
                 const dir_R = R.clone().sub(C).normalize();
@@ -484,10 +497,45 @@ export class SMPLModelFactory {
                 garmentPos[gIdx * 3 + 1] = p.y;
                 garmentPos[gIdx * 3 + 2] = p.z;
                 gIdx++;
+
+                // Dynamic Planar Texture Coordinates:
+                // Guarantees horizontal stripes remain strictly perpendicular to the spine
+                const t_sleeve = (v > 0.70) ? ((v - 0.70) / 0.30) : 0.0;
+                const s_armhole = 1.0 - 0.25 * t_sleeve; // 1.0 at torso, smoothly narrows to 0.75 at shoulder seam
+                
+                const vertexH = p.clone().sub(P_hemCenter).dot(v_up);
+                const relH = Math.max(0.0, Math.min(1.05, vertexH / totalTorsoH));
+                const vTorso = 0.11 + relH * (0.86 - 0.11);
+
+                let uTex, vTex;
+                if (Math.abs(s) <= s_armhole) {
+                    // Torso region (front chest & abdomen):
+                    // Maps cleanly across the central garment body [0.27, 0.73]
+                    const sNorm = s / s_armhole; // -1 to +1
+                    uTex = 0.50 + sNorm * 0.23;
+                    vTex = vTorso;
+                } else {
+                    // Sleeve region:
+                    // Seamlessly joins the armhole boundary and maps to the sleeve pattern
+                    const lambda = (Math.abs(s) - s_armhole) / (1.0 - s_armhole);
+                    if (s > 0) {
+                        uTex = 0.73 + lambda * 0.20;
+                    } else {
+                        uTex = 0.27 - lambda * 0.20;
+                    }
+
+                    const vCuff = 0.56 + t_sleeve * (0.80 - 0.56);
+                    vTex = (1.0 - lambda) * vTorso + lambda * vCuff;
+                }
+
+                const uvIdx = j * (Nx + 1) + i;
+                garmentUvs[uvIdx * 2] = uTex;
+                garmentUvs[uvIdx * 2 + 1] = vTex;
             }
         }
 
         garmentGeo.attributes.position.needsUpdate = true;
+        garmentGeo.attributes.uv.needsUpdate = true;
         garmentGeo.computeVertexNormals();
 
         // 4. DEFORM COLLAR BAND ON SMPL NECK ROOT
