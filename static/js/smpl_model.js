@@ -297,13 +297,13 @@ export class SMPLModelFactory {
                 // Pelvis & lower abdomen (relaxed anatomical width)
                 const t = v / 0.35;
                 centerPt = C_hipCenter.clone().lerp(C_navel, t);
-                rx = sw * (0.43 - 0.02 * t);
+                rx = sw * (0.47 - 0.02 * t);
                 rz = sw * 0.22;
             } else if (v <= 0.70) {
                 // Waist, solar plexus, and ribcage
                 const t = (v - 0.35) / 0.35;
                 centerPt = C_navel.clone().lerp(C_solar, t);
-                rx = sw * (0.41 + 0.05 * t);
+                rx = sw * (0.45 + 0.03 * t);
                 rz = sw * (0.22 + 0.04 * t);
             } else if (v <= 0.90) {
                 // Chest & Shoulders (lifted to align with collarbase)
@@ -425,12 +425,12 @@ export class SMPLModelFactory {
             }
 
             // Natural relaxed t-shirt drape: widen waist and hem outward away from center spine
-            if (v <= 0.72) {
-                const waistFactor = (v <= 0.35) 
-                    ? (1.0 - 0.15 * (v / 0.35))             // Hem: widest relaxed fit (~8.2% sw expansion)
-                    : (0.85 - 0.85 * ((v - 0.35) / 0.37)); // Waist: smooth taper to armpits
+            if (v <= 0.78) {
+                const waistFactor = (v <= 0.40) 
+                    ? (1.0 - 0.08 * (v / 0.40))             // Hem & Lower waist: generous relaxed width (~13.5% sw expansion)
+                    : (0.92 - 0.92 * ((v - 0.40) / 0.38)); // Mid waist to armpits: smooth straight cut to armpits
                 
-                const waistExpansion = sw * 0.082 * waistFactor;
+                const waistExpansion = sw * 0.135 * waistFactor;
                 
                 const dir_L = L.clone().sub(C).normalize();
                 const dir_R = R.clone().sub(C).normalize();
