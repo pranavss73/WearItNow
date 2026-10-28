@@ -74,6 +74,7 @@ export class SMPLModelFactory {
             transparent: true,
             alphaTest: 0.05,
             depthWrite: true,
+            vertexColors: true,
         });
         const garmentMesh = new THREE.Mesh(garmentGeo, garmentMat);
         garmentMesh.name = "smpl_garment_mesh";
@@ -156,6 +157,9 @@ export class SMPLModelFactory {
         const uvs = new Float32Array(numVerts * 2);
         const indices = [];
 
+        const colors = new Float32Array(numVerts * 3);
+        colors.fill(1.0);
+
         for (let j = 0; j <= Ny; j++) {
             const v = j / Ny;
             for (let i = 0; i <= Nx; i++) {
@@ -185,6 +189,7 @@ export class SMPLModelFactory {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         geo.setIndex(indices);
         return geo;
     }
@@ -197,6 +202,8 @@ export class SMPLModelFactory {
         const numVerts = (segments + 1) * 2;
         const positions = new Float32Array(numVerts * 3);
         const uvs = new Float32Array(numVerts * 2);
+        const collarColors = new Float32Array(numVerts * 3);
+        collarColors.fill(1.0);
         const indices = [];
 
         for (let i = 0; i <= segments; i++) {
@@ -224,6 +231,7 @@ export class SMPLModelFactory {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        geo.setAttribute('color', new THREE.BufferAttribute(collarColors, 3));
         geo.setIndex(indices);
         return geo;
     }
@@ -291,7 +299,7 @@ export class SMPLModelFactory {
             const v = j / N_height; // 0 (hips) to 1.0 (neck/head)
 
             let centerPt, rx, rz;
-            const liftUp = v_up.clone().multiplyScalar(sw * 0.055);
+            const liftUp = v_up.clone().multiplyScalar(sw * 0.082);
 
             if (v <= 0.35) {
                 // Pelvis & lower abdomen (relaxed anatomical width)
@@ -346,25 +354,25 @@ export class SMPLModelFactory {
         let gIdx = 0;
 
         // Lift offset to align collar and shoulders gracefully at the base of the neck
-        const liftUp = v_up.clone().multiplyScalar(sw * 0.055);
+        const liftUp = v_up.clone().multiplyScalar(sw * 0.082);
 
         // Anatomical collar landmarks on the SMPL body (lifted to collarbone hollow)
         const collarHalfWidth = sw * 0.165;
         const P_trap_L = C_midShoulder.clone()
             .add(liftUp)
             .addScaledVector(u_lat, collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.030)
+            .addScaledVector(v_up, sw * 0.035)
             .addScaledVector(n_chest, -sw * 0.012);
 
         const P_trap_R = C_midShoulder.clone()
             .add(liftUp)
             .addScaledVector(u_lat, -collarHalfWidth)
-            .addScaledVector(v_up, sw * 0.030)
+            .addScaledVector(v_up, sw * 0.035)
             .addScaledVector(n_chest, -sw * 0.012);
 
         const P_collarDip = C_midShoulder.clone()
             .add(liftUp)
-            .addScaledVector(v_up, -sw * 0.008) // Lifted collar hollow
+            .addScaledVector(v_up, sw * 0.005) // Lifted collar hollow
             .addScaledVector(n_chest, sw * 0.032);
 
         // Shoulder points: lifted and slightly wider for relaxed t-shirt shoulder seam
@@ -412,6 +420,7 @@ export class SMPLModelFactory {
 
         // Torso spine reference frame for planar vertical texture mapping
         const garmentUvs = garmentGeo.attributes.uv.array;
+        const garmentColors = garmentGeo.attributes.color?.array;
         const P_hemCenter = C_hipCenter.clone().addScaledVector(v_up, -sw * 0.05);
         const P_topShoulder = C_midShoulder.clone().add(liftUp).addScaledVector(v_up, sw * 0.02);
         const totalTorsoH = Math.max(0.1, P_topShoulder.clone().sub(P_hemCenter).dot(v_up));
@@ -437,13 +446,13 @@ export class SMPLModelFactory {
                 R = C_rightArmpit.clone().lerp(P_sleeveEnd_R, t);
             }
 
-            // Natural relaxed t-shirt drape: widen waist and hem outward away from center spine
+            // Tailored t-shirt drape: gentle waist expansion avoiding excess bagginess
             if (v <= 0.78) {
-                const waistFactor = (v <= 0.45) 
-                    ? (1.0 - 0.05 * (v / 0.45))             // Hem & Lower waist: generous relaxed width (~17.0% sw expansion)
-                    : (0.95 - 0.95 * ((v - 0.45) / 0.33)); // Mid waist to armpits: smooth straight cut to armpits
+                const waistFactor = (v <= 0.40) 
+                    ? (0.80 + 0.20 * (v / 0.40))             // Hem & Lower waist: gentle straight width (~8.0% sw expansion)
+                    : (1.0 - 1.0 * ((v - 0.40) / 0.38));    // Mid waist to armpits: smooth straight cut to armpits
                 
-                const waistExpansion = sw * 0.170 * waistFactor;
+                const waistExpansion = sw * 0.080 * waistFactor;
                 
                 const dir_L = L.clone().sub(C).normalize();
                 const dir_R = R.clone().sub(C).normalize();
@@ -487,15 +496,27 @@ export class SMPLModelFactory {
 
                 p.addScaledVector(n_chest, depth);
 
-                // Flank curvature (wraps around ribcage)
-                if (Math.abs(s) > 0.65) {
-                    const flankW = (Math.abs(s) - 0.65) / 0.35;
-                    p.addScaledVector(n_chest, -sw * 0.05 * flankW * flankW);
+                // Flank curvature (wraps gently around ribcage in 3D)
+                if (Math.abs(s) > 0.45) {
+                    const flankW = (Math.abs(s) - 0.45) / 0.55;
+                    p.addScaledVector(n_chest, -sw * 0.075 * Math.pow(flankW, 1.8));
                 }
 
                 garmentPos[gIdx * 3] = p.x;
                 garmentPos[gIdx * 3 + 1] = p.y;
                 garmentPos[gIdx * 3 + 2] = p.z;
+
+                // Subtle 3D flank edge darkening & ambient occlusion
+                if (garmentColors) {
+                    const absS = Math.abs(s);
+                    const edgeDarken = 1.0 - 0.26 * Math.pow(absS, 2.2); // 1.0 at center -> 0.74 at flanks
+                    const hemShadow = (v < 0.12) ? (0.88 + 0.12 * (v / 0.12)) : 1.0;
+                    const shade = Math.max(0.68, edgeDarken * hemShadow);
+
+                    garmentColors[gIdx * 3] = shade;
+                    garmentColors[gIdx * 3 + 1] = shade;
+                    garmentColors[gIdx * 3 + 2] = shade;
+                }
                 gIdx++;
 
                 // Dynamic Planar Texture Coordinates:
@@ -536,10 +557,12 @@ export class SMPLModelFactory {
 
         garmentGeo.attributes.position.needsUpdate = true;
         garmentGeo.attributes.uv.needsUpdate = true;
+        if (garmentColors) garmentGeo.attributes.color.needsUpdate = true;
         garmentGeo.computeVertexNormals();
 
         // 4. DEFORM COLLAR BAND ON SMPL NECK ROOT
         const collarPos = collarGeo.attributes.position.array;
+        const collarColors = collarGeo.attributes.color?.array;
         const segments = 32;
         const collarThickness = sw * 0.020;
         let cIdx = 0;
@@ -558,15 +581,28 @@ export class SMPLModelFactory {
             collarPos[cIdx * 3] = innerPt.x;
             collarPos[cIdx * 3 + 1] = innerPt.y;
             collarPos[cIdx * 3 + 2] = innerPt.z + 0.005;
+
+            if (collarColors) {
+                collarColors[cIdx * 3] = 0.95;
+                collarColors[cIdx * 3 + 1] = 0.95;
+                collarColors[cIdx * 3 + 2] = 0.95;
+            }
             cIdx++;
 
             collarPos[cIdx * 3] = outerPt.x;
             collarPos[cIdx * 3 + 1] = outerPt.y;
             collarPos[cIdx * 3 + 2] = outerPt.z + 0.008;
+
+            if (collarColors) {
+                collarColors[cIdx * 3] = 0.88;
+                collarColors[cIdx * 3 + 1] = 0.88;
+                collarColors[cIdx * 3 + 2] = 0.88;
+            }
             cIdx++;
         }
 
         collarGeo.attributes.position.needsUpdate = true;
+        if (collarColors) collarGeo.attributes.color.needsUpdate = true;
         collarGeo.computeVertexNormals();
     }
 }
