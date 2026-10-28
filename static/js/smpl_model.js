@@ -412,7 +412,7 @@ export class SMPLModelFactory {
 
         // Torso spine reference frame for planar vertical texture mapping
         const garmentUvs = garmentGeo.attributes.uv.array;
-        const P_hemCenter = C_hipCenter.clone().subScaledVector(v_up, sw * 0.05);
+        const P_hemCenter = C_hipCenter.clone().addScaledVector(v_up, -sw * 0.05);
         const P_topShoulder = C_midShoulder.clone().add(liftUp).addScaledVector(v_up, sw * 0.02);
         const totalTorsoH = Math.max(0.1, P_topShoulder.clone().sub(P_hemCenter).dot(v_up));
 

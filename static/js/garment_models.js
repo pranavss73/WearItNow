@@ -532,7 +532,7 @@ export class GarmentModelFactory {
             .addScaledVector(n_chest, sw * 0.035);
 
         const torsoUvs = geo.attributes.uv.array;
-        const P_hemCenter = C_hipCenter.clone().subScaledVector(v_up, sw * 0.05);
+        const P_hemCenter = C_hipCenter.clone().addScaledVector(v_up, -sw * 0.05);
         const P_topShoulder = C_midShoulder.clone().addScaledVector(v_up, sw * 0.04);
         const totalTorsoH = Math.max(0.1, P_topShoulder.clone().sub(P_hemCenter).dot(v_up));
 
