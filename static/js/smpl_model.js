@@ -701,7 +701,7 @@ export class SMPLModelFactory {
 
         // Lateral vector perpendicular to dir_arm, pointing strictly away from torso
         const bodyLat = u_lat.clone().multiplyScalar(latSign);
-        let u_lat_arm = bodyLat.clone().subScaledVector(dir_arm, bodyLat.dot(dir_arm));
+        let u_lat_arm = bodyLat.clone().addScaledVector(dir_arm, -bodyLat.dot(dir_arm));
         if (u_lat_arm.lengthSq() > 0.01) {
             u_lat_arm.normalize();
         } else {
@@ -709,7 +709,7 @@ export class SMPLModelFactory {
         }
 
         // Forward normal perpendicular to dir_arm and u_lat_arm, pointing towards camera (+Z)
-        let n_arm = n_chest.clone().subScaledVector(dir_arm, n_chest.dot(dir_arm));
+        let n_arm = n_chest.clone().addScaledVector(dir_arm, -n_chest.dot(dir_arm));
         if (n_arm.lengthSq() > 0.01) {
             n_arm.normalize();
         } else {
