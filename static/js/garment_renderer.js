@@ -14,8 +14,8 @@
  */
 
 import * as THREE from 'three';
-import { GarmentModelFactory } from './garment_models.js?v=11.0';
-import { SMPLModelFactory } from './smpl_model.js?v=11.0';
+import { GarmentModelFactory } from './garment_models.js?v=12.0';
+import { SMPLModelFactory } from './smpl_model.js?v=12.0';
 
 /**
  * Empirical Ground-Truth Presets (Calibrated by User)

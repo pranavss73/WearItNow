@@ -903,7 +903,7 @@ export class GarmentModelFactory {
         }
 
         garmentGroup.traverse((child) => {
-            if (child.isMesh && child.material) {
+            if (child.isMesh && child.material && child.name !== 'smpl_body_mesh' && child.name !== 'smpl_wireframe') {
                 child.material.map = texture;
                 child.material.color.set(0xffffff);
                 child.material.needsUpdate = true;
