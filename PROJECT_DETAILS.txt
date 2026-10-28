@@ -1,0 +1,442 @@
+================================================================================
+WEARITNOW: AR VIRTUAL GARMENT TRY-ON SYSTEM
+Augmented Reality & Virtual Reality (AR/VR) — Semester 5 Course Project
+Complete Technical Architecture, Implementation, and Component Reference
+================================================================================
+
+TABLE OF CONTENTS:
+1. Executive Summary & Project Purpose
+2. High-Level Architecture & End-to-End Workflow
+3. Backend Server & AI Processing Pipeline (Python / FastAPI)
+   3.1. Server Launcher & Lifecycle (`run.py`, `server/main.py`)
+   3.2. Zero-Shot Garment Classification (`server/services/classifier.py`)
+   3.3. Deep Garment Segmentation (`server/services/segmenter.py`)
+   3.4. Texture Extraction & Optimization (`server/services/texture_processor.py`)
+4. Frontend AR Tracking & Computer Vision Subsystem (JavaScript / MediaPipe)
+   4.1. MediaPipe BlazePose 33-Landmark 3D Tracking (`static/js/tracker.js`)
+   4.2. 18-Point Anatomical Body Cage & Occlusion Masks (`static/js/tracker.js`)
+   4.3. Exponential Moving Average (EMA) Temporal Stabilization (`static/js/tracker.js`)
+5. Dual 3D Try-On Deformation Engines (Three.js / WebGL)
+   5.1. Engine 1: SMPL / HMR 2.0 Human Mesh Recovery (`static/js/smpl_model.js`)
+        - 3D Parametric Digital Twin Reconstructor
+        - Surface-Bound Continuous 3D Garment Mesh
+        - Kinematic Frame Solving (Spine Up, Chest Normal, Coronal Plane)
+        - Armpit-Aligned Geometric Elevation
+        - Dynamic Planar UV Projection (Horizontal Stripe Anti-Warping)
+        - 3D Flank Curvature & Vignetted Ambient Occlusion Edge Darkening
+        - Tailored Relaxed Waist Drape
+   5.2. Engine 2: Landmark-Anchored Deformer Engine (`static/js/garment_models.js`)
+        - Procedural Torso Mesh ($40 \times 40$ Grid)
+        - Articulated Dual Sleeve Cylinders ($24 \times 24$ Grid)
+        - Crew-Neck Collar Ribbing & Hood Mesh
+        - Dynamic Armhole Seam Welding & Arm Elevation
+        - Silhouette-Aware Contour Edge Snapping
+        - Invisible AR Forearm Occluders (Z-Buffer Depth Masking)
+6. Scene Orchestration & Rendering Core (`static/js/garment_renderer.js`, `static/js/app.js`)
+   6.1. Three.js PBR Cloth Studio Lighting & Projection Camera
+   6.2. Dual-Engine Switcher & Smooth Transform Interpolation
+   6.3. Live Webcam vs. Calibrated Reference Subject Pipeline
+7. Calibration Lab & Ground-Truth Presets (`static/calibrate.html`, `static/js/calibrate.js`)
+8. Complete Repository Directory & File Map
+9. Installation, Setup, and Execution Guide
+
+================================================================================
+1. EXECUTIVE SUMMARY & PROJECT PURPOSE
+================================================================================
+WearItNow is a browser-based Augmented Reality (AR) virtual try-on system that
+enables users to upload any 2D photograph of a piece of clothing (t-shirt,
+hoodie, formal shirt, or jacket) and instantly visualize it realistically fitted,
+illuminated, and deformed to their body in real time (30–60 FPS) through a
+standard RGB webcam or on pre-calibrated reference subjects.
+
+Unlike traditional virtual try-on systems that rely on 2D image-to-image
+generative models (which suffer from high server compute costs, 5–10 second
+delays per frame, and temporal jitter) or rigid 3D assets that fail to adapt to
+different body shapes, WearItNow combines:
+1. Lightweight, zero-shot Deep Learning backend models for instant automatic
+   garment segmentation and classification.
+2. Real-time browser-side 3D skeletal tracking and dense anatomical body cages.
+3. Advanced Dual-Engine 3D procedural cloth deformation models (SMPL Human Mesh
+   Recovery and Landmark Deformer) running completely client-side in WebGL.
+
+================================================================================
+2. HIGH-LEVEL ARCHITECTURE & END-TO-END WORKFLOW
+================================================================================
+The project operates via a split client-server pipeline:
+
+[ USER UPLOADS GARMENT IMAGE ]
+               │
+               ▼ (Multipart HTTP POST /api/process-garment)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ FASTAPI PYTHON BACKEND                                                       │
+│ 1. GarmentClassifier: OpenAI CLIP ViT-B/32 Zero-Shot Categorization         │
+│    -> Predicts category: tshirt / hoodie / formal_shirt / jacket             │
+│    -> Fallback: Morphological aspect ratio & contour analysis via OpenCV     │
+│ 2. GarmentSegmenter: U2-Net Portable Deep Background Removal (rembg)         │
+│    -> Produces a clean RGBA cutout with alpha channel                        │
+│    -> Fallback: OpenCV GrabCut bounding box segmentation                     │
+│ 3. TextureProcessor: Alpha cropping, border cleanup, square RGBA packing    │
+│    -> Returns base64 PNG texture and category metadata to browser            │
+└──────────────────────────────────────┬───────────────────────────────────────┘
+                                       │ JSON Response (< 800ms)
+                                       ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ THREE.JS / MEDIAPIPE BROWSER FRONTEND                                        │
+│ 1. Video Capture: Webcam stream / Still photograph at 1080p / 720p           │
+│ 2. Tracker: MediaPipe BlazePose extracts 33 3D world joints                  │
+│ 3. BodyCage Solver: Computes 18 anatomical landmarks (sternum, solar plexus, │
+│    navel, armpits, ribs, waist, hips, clavicles, elbows, wrists)             │
+│ 4. Engine Selector:                                                          │
+│    ├── SMPL Human Mesh Recovery: Deforms 3D digital twin + continuous        │
+│    │   cloth mesh with dynamic planar UV mapping & flank edge shading        │
+│    └── Landmark Engine: Deforms separate torso + articulated sleeve tubes   │
+│        with forearm depth occluders & silhouette snapping                    │
+│ 5. Three.js Renderer: Composites 3D garments with PBR studio lighting        │
+│    directly over live video feed at 30–60 FPS                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+3. BACKEND SERVER & AI PROCESSING PIPELINE (PYTHON / FASTAPI)
+================================================================================
+
+3.1. Server Launcher & Lifecycle (`run.py`, `server/main.py`)
+------------------------------------------------------------
+- `run.py`:
+  * Detects current Python environment and verifies required packages (FastAPI,
+    Uvicorn, PyTorch, Transformers, rembg, OpenCV, Pillow).
+  * Automatically binds to `http://localhost:8000` and launches Uvicorn.
+  * Serves the frontend static files from `static/` and mounts API routes.
+- `server/main.py`:
+  * Uses FastAPI's `@asynccontextmanager` lifespan to preload AI models into
+    memory at startup, preventing first-request inference delays.
+  * Configures CORS headers and enforces cache-busting middleware (`no-cache,
+    no-store, must-revalidate`) so updated textures and client scripts refresh
+    instantly.
+  * Exposes `/api/health` and `/api/process-garment`.
+
+3.2. Zero-Shot Garment Classification (`server/services/classifier.py`)
+-----------------------------------------------------------------------
+- Technology: OpenAI CLIP (ViT-B/32) loaded via HuggingFace `transformers`.
+- Prompt Engineering: Employs zero-shot classification with curated natural
+  language text queries:
+  * T-Shirt: "a plain t-shirt, short-sleeve crewneck shirt, casual tee"
+  * Hoodie: "a hooded sweatshirt, hoodie with hood and drawstrings"
+  * Formal Shirt: "a button-down dress shirt with collar, formal collared shirt"
+  * Jacket: "a zip-up jacket, winter coat, denim jacket, blazer"
+- Cosine Similarity: Computes normalized dot product between image embeddings
+  and text embeddings to produce softmax confidence scores.
+- CV Fallback: If PyTorch or CLIP fails, an OpenCV computer vision fallback
+  evaluates garment aspect ratios (height / width), collar contour concave dips,
+  and sleeve protrusions.
+
+3.3. Deep Garment Segmentation (`server/services/segmenter.py`)
+---------------------------------------------------------------
+- Technology: `rembg` powered by the U2-Net Portable ONNX deep neural network
+  (~4.7 MB).
+- Operation: Extracts salient foreground garments from complex e-commerce, flat-
+  lay, or mannequin backgrounds without requiring green screens.
+- Fallback: OpenCV GrabCut algorithm with rectangular outer border initialization
+  and Gaussian bilateral smoothing to isolate clothing masks when offline.
+
+3.4. Texture Extraction & Optimization (`server/services/texture_processor.py`)
+-------------------------------------------------------------------------------
+- Bounding Box Normalization: Trims empty transparent margins around segmented
+  garments.
+- Aspect Ratio Alignment: Rescales and centers textures into normalized square
+  or proportional power-of-two RGBA maps.
+- Anti-Aliasing: Applies morphological alpha erosion along cut edges to remove
+  halo artifacts from background colors.
+
+================================================================================
+4. FRONTEND AR TRACKING & COMPUTER VISION SUBSYSTEM (JAVASCRIPT)
+================================================================================
+
+4.1. MediaPipe BlazePose 33-Landmark 3D Tracking (`static/js/tracker.js`)
+-------------------------------------------------------------------------
+- Technology: Google MediaPipe `@mediapipe/tasks-vision` (PoseLandmarker Full).
+- Tracks 33 body landmarks in both normalized 2D camera coordinates $(x, y)$
+  and metric 3D camera space $(x, y, z)$.
+- Real-time performance: Executes at 35–60 FPS inside the browser using WebGL
+  acceleration.
+
+4.2. 18-Point Anatomical Body Cage (`static/js/tracker.js`)
+-----------------------------------------------------------
+Raw skeleton landmarks only give joint pivot points (shoulders, elbows, hips).
+Garments require surface geometry. `BodyTracker._buildBodyCage` constructs an
+anatomical cage with 18 distinct landmarks:
+1. `neck`: Midpoint between shoulder joints lifted toward the base of the skull.
+2. `suprasternalNotch`: The hollow dip between the clavicles.
+3. `clavicleLeft` & `clavicleRight`: Natural shoulder slope lines.
+4. `leftShoulder` & `rightShoulder`: Acromion process tips.
+5. `leftArmpit` & `rightArmpit`: Dynamic underarm junctions that elevate when
+   arms raise.
+6. `sternum`: Upper chest volume center ($0.70 \cdot \text{shoulder} + 0.30 \cdot \text{hip}$).
+7. `solarPlexus`: Mid-torso spine anchor ($0.45 \cdot \text{shoulder} + 0.55 \cdot \text{hip}$).
+8. `navel`: Lower abdomen / belt center ($0.20 \cdot \text{shoulder} + 0.80 \cdot \text{hip}$).
+9. `leftRib` & `rightRib`: Lateral ribcage borders.
+10. `leftWaist` & `rightWaist`: Natural narrowest waist indentations.
+11. `leftHip` & `rightHip`: Pelvis lateral limits.
+12. `hipCenter`: Sacrum / bottom hem center.
+13. `leftElbow` & `rightElbow`: Upper arm vector terminators.
+14. `leftWrist` & `rightWrist`: Forearm vector terminators.
+
+4.3. Exponential Moving Average (EMA) Temporal Stabilization
+------------------------------------------------------------
+To eliminate high-frequency webcam landmark jitter without adding lag,
+`tracker.js` implements dual-rate EMA smoothing:
+$$P_{\text{smooth}}(t) = \alpha \cdot P_{\text{raw}}(t) + (1 - \alpha) \cdot P_{\text{smooth}}(t-1)$$
+- Standard body joints: $\alpha = 0.50$ (smooth, organic stability).
+- Rapid limb movements: Dynamically adapts $\alpha \to 0.85$ when joint velocity
+  exceeds thresholds, ensuring zero latency during arm swings.
+
+================================================================================
+5. DUAL 3D TRY-ON DEFORMATION ENGINES (THREE.JS / WEBGL)
+================================================================================
+WearItNow features a dual-engine architecture accessible directly via top toggle
+buttons (`[📐 Landmark Engine]` and `[🧬 SMPL Human Mesh]`):
+
+--------------------------------------------------------------------------------
+5.1. ENGINE 1: SMPL / HMR 2.0 PARAMETRIC HUMAN MESH RECOVERY (`static/js/smpl_model.js`)
+--------------------------------------------------------------------------------
+The SMPL engine represents the cutting edge of virtual try-on technology. Instead
+of floating geometric panels, it constructs a complete 3D digital twin of the
+user's body and binds the garment directly to this parametric surface.
+
+A. 3D Digital Twin Parametric Human Mesh:
+   - Generated dynamically with $32 \times 28$ vertices (896 vertices, 1,736
+     faces).
+   - Reconstructs a full 360-degree anatomical human surface: pelvis, lower
+     abdomen, waist curve, pectoral dome, ribcage volume, back column, neck
+     column, and shoulder caps.
+   - Includes an optional holographic cyan wireframe cage (`[☑️ Body Twin]`) that
+     tracks user motion in real time.
+
+B. Surface-Bound Continuous 3D Garment Mesh:
+   - A single unified topological cloth grid ($36 \times 36 = 1,369$ vertices,
+     2,592 faces).
+   - Unifies torso, shoulders, collar, and seamless sleeve caps into a SINGLE
+     continuous mesh.
+   - Solves the classic virtual try-on problem: ZERO mesh tearing, ZERO holes at
+     the armpits, and ZERO floating seams.
+
+C. Kinematic Frame Solving:
+   Each frame, the solver computes an anatomical coordinate frame from 3D joints:
+   - Acromion center: $C_{\text{midShoulder}} = \text{lerp}(C_{\text{ls}}, C_{\text{rs}}, 0.5)$
+   - Spine Up-Vector ($v_{\text{up}}$): Unit vector pointing from solar plexus
+     up to shoulder center.
+   - Lateral Shoulder Vector ($u_{\text{shoulder}}$): Points from right to left shoulder.
+   - Coronal Chest Normal ($n_{\text{chest}}$): $n_{\text{chest}} = v_{\text{up}} \times u_{\text{shoulder}}$.
+     Represents the forward perpendicular vector pointing toward the camera (+Z).
+   - Lateral Coronal Vector ($u_{\text{lat}}$): $u_{\text{lat}} = n_{\text{chest}} \times v_{\text{up}}$.
+
+D. Armpit-Aligned Geometric Elevation:
+   - Problem in naive meshes: Rows sag down in the center (e.g., center pinned to
+     stomach while sides are at armpits), creating an unnatural chevron/V-dip.
+   - Solution: At $v = 0.70$, the center spine anchor is set to $C_{\text{chestLevel}}$,
+     which is mathematically projected at the exact same elevation along $v_{\text{up}}$
+     as the armpits:
+     $$\text{armpitElev} = (C_{\text{midArmpit}} - C_{\text{hipCenter}}) \cdot v_{\text{up}}$$
+     $$C_{\text{chestLevel}} = C_{\text{hipCenter}} + v_{\text{up}} \cdot \text{armpitElev} + n_{\text{chest}} \cdot (0.035 \cdot sw)$$
+   - Result: Every horizontal row across the torso is a true planar cross-section
+     orthogonal to the spine.
+
+E. Dynamic Planar UV Projection (Horizontal Stripe Anti-Warping):
+   - Problem: If UVs are statically bound to grid indices, any physical deformation
+     causes horizontal stripes on t-shirts to bend into chevron "V" shapes.
+   - Solution: In `_solveAndDeform()`, the vertical texture coordinate $V_{\text{tex}}$
+     is calculated dynamically for every vertex based on its absolute projection
+     along the spine up-vector $v_{\text{up}}$:
+     $$\text{vertexH} = (p - P_{\text{hemCenter}}) \cdot v_{\text{up}}$$
+     $$\text{relH} = \text{clamp}\left(\frac{\text{vertexH}}{\text{totalTorsoH}}, 0.0, 1.05\right)$$
+     $$V_{\text{torso}} = 0.11 + \text{relH} \cdot (0.86 - 0.11)$$
+   - Mathematical guarantee: Any plane orthogonal to $v_{\text{up}}$ receives the
+     EXACT same $V_{\text{tex}}$. Horizontal stripes on t-shirts remain strictly
+     parallel and straight across the chest and stomach regardless of body movement!
+
+F. Seamless Sleeve UV Unwrapping:
+   - Torso width $|s| \le s_{\text{armhole}}$ maps across the central shirt
+     region $[0.27, 0.73]$.
+   - Sleeves map to the lateral image sleeve panels: Left sleeve maps to
+     $[0.73, 0.93]$, Right sleeve maps to $[0.07, 0.27]$.
+   - Continuous boundary blending at the armhole eliminates texture shearing.
+
+G. 3D Flank Curvature & Ambient Occlusion Edge Darkening:
+   - Flanks wrap backwards around the ribcage in true 3D depth:
+     $$p \mathrel{+}= -n_{\text{chest}} \cdot \left(sw \cdot 0.075 \cdot \text{flankW}^{1.8}\right)$$
+   - Vertex colors (`vertexColors: true` on `MeshStandardMaterial`) apply a subtle
+     vignetted ambient occlusion roll-off: 100% brightness at the chest center,
+     gently shading to 74% brightness at the lateral flanks, with a 12% under-hem
+     shadow. This produces realistic cylindrical cloth lighting and depth.
+
+H. Tailored Relaxed Drape:
+   - Waist expansion scalar ($sw \cdot 0.080$) maintains a straight, athletic cut
+     without pinching like a corset or flaring out like a boxy cylinder.
+
+--------------------------------------------------------------------------------
+5.2. ENGINE 2: LANDMARK DEFORMER ENGINE (`static/js/garment_models.js`)
+--------------------------------------------------------------------------------
+The Landmark Engine provides maximum structural articulation for garments with
+distinct, movable sleeves (jackets, hoodies, formal shirts):
+
+A. Procedural Mesh Assembly:
+   1. Torso Grid ($40 \times 40 = 1,681$ vertices, 3,200 faces).
+   2. Left & Right Sleeve Tubes ($24 \times 24 = 625$ vertices each, 1,152 faces
+      each) anchored at shoulder tips and draped along elbow-to-wrist vectors.
+   3. Collar Ribbing Ring ($32 \times 2 = 66$ vertices).
+   4. Hood Mesh (Hemispherical PBR cloth dome for hoodies).
+   5. Forearm Occlusion Capsules (`colorWrite: false, depthWrite: true`).
+
+B. Arm Elevation & Armhole Seam Welding:
+   - Monitors elbow angle relative to shoulders (`leftArmLift`, `rightArmLift`).
+   - When arms raise, the shoulder seam arches upward while the sleeve cylinder
+     rim expands and rotates dynamically, maintaining seamless vertex alignment
+     between sleeve and torso without tearing.
+
+C. Silhouette-Aware Contour Edge Snapping:
+   - Queries real-time silhouette bounds from the background segmenter.
+   - Elastically snaps garment lateral borders ($L$ and $R$) to the user's
+     detected outer body contours, eliminating overshooting or floating margins.
+
+D. Invisible AR Forearm Occluders (Depth Masking):
+   - Problem: In virtual try-on, virtual shirts render in front of the user's
+     real forearms when they cross their arms across their chest.
+   - Solution: Spawns invisible 3D cylinder capsules along the forearm vectors
+     ($C_{\text{elbow}} \to C_{\text{wrist}}$) with `colorWrite: false` and
+     `depthWrite: true`.
+   - When the user lifts their arms across their body, the occluders write
+     strictly to the WebGL Z-buffer. The GPU automatically occludes the virtual
+     shirt, allowing the user's real hands and forearms to appear naturally in
+     front of the clothing!
+
+================================================================================
+6. SCENE ORCHESTRATION & RENDERING CORE (`garment_renderer.js`, `app.js`)
+================================================================================
+
+6.1. Three.js PBR Cloth Studio Lighting & Projection Camera
+-----------------------------------------------------------
+- Camera: Perspective camera with dynamically updated aspect ratio matching the
+  video feed dimensions ($1536 \times 826$, $1280 \times 720$, etc.).
+- Realistic Studio Lighting Setup:
+  * Ambient Light: Soft white base ambient (intensity: 1.25).
+  * Key Light: Warm directional light (intensity: 1.35) positioned at (1.5, 2.5, 3.0).
+  * Fill Light: Cool soft directional fill (intensity: 0.85) at (-2.0, 1.5, 2.0).
+  * Rim Light: Subtle cyan rim light (intensity: 0.35) at (0, -1.0, 1.5) for edge
+    separation.
+
+6.2. Dual-Engine Switcher & Smooth Transform Interpolation
+----------------------------------------------------------
+- `garment_renderer.js` manages instant hot-swapping between `landmark` and `smpl`
+  engines without reloading textures or dropping video frames.
+- Smooth target interpolation: Positions, Euler rotations, and scales are
+  linearly interpolated ($\text{LERP} = 0.25$) each frame to prevent jerky
+  snapping when body tracking experiences noise.
+
+6.3. Live Webcam vs. Calibrated Reference Subject Pipeline
+----------------------------------------------------------
+- Live Camera Mode: Connects to `navigator.mediaDevices.getUserMedia`, streaming
+  live video into MediaPipe BlazePose for real-time try-on.
+- Still Reference Subject Mode: Provides instant testing without a webcam using
+  pre-packaged reference models (`Still: Male`, `Still: Female`, `Still: Desk`).
+  Pre-calibrated ground-truth landmark cages allow automated verification.
+
+================================================================================
+7. CALIBRATION LAB & GROUND-TRUTH PRESETS (`calibrate.html`, `calibrate.js`)
+================================================================================
+WearItNow includes a dedicated engineering calibration suite accessible via the
+`[📊 Calibration Lab]` button:
+- 12+ Real-Time Fine-Tune Sliders:
+  * Position (X, Y, Z offsets)
+  * Scale (Uniform and independent Width / Height / Depth)
+  * Rotation (Yaw, Pitch, Roll in degrees)
+  * Arm Articulation Angles (Left / Right arm rotation)
+  * Camera FOV & Distance calibration
+- Ground-Truth Preset System:
+  * Saves per-subject, per-garment calibrations to browser `localStorage` and
+    exports formatted JSON code presets for `garment_renderer.js`.
+  * Enables instant benchmark evaluation and unit testing across multiple body
+    types.
+
+================================================================================
+8. COMPLETE REPOSITORY DIRECTORY & FILE MAP
+================================================================================
+WearItNow/
+├── run.py                       # One-click startup script (checks packages & launches server)
+├── requirements.txt             # Python dependencies (FastAPI, PyTorch, CLIP, rembg, OpenCV)
+├── Review2_Report.html          # Formatted academic project report & review documentation
+├── PROJECT_DETAILS.txt          # This complete technical documentation reference file
+│
+├── server/                      # Backend Python subsystem
+│   ├── __init__.py
+│   ├── main.py                  # FastAPI REST server, lifespan loader, API endpoints
+│   └── services/
+│       ├── __init__.py
+│       ├── classifier.py        # OpenAI CLIP zero-shot classification + CV fallback
+│       ├── segmenter.py         # U2-Net background removal (rembg) + GrabCut fallback
+│       └── texture_processor.py # RGBA texture extraction, alpha cropping & normalization
+│
+└── static/                      # Frontend client subsystem
+    ├── index.html               # Main AR Try-On user interface (Dual-engine controls, feed)
+    ├── calibrate.html           # Calibration Lab interface with 12+ fine-tune sliders
+    ├── css/
+    │   └── style.css            # Modern dark-mode glassmorphism design system & animations
+    ├── js/
+    │   ├── api.js               # REST client for backend garment processing API
+    │   ├── app.js               # Main application coordinator, event binding & render loop
+    │   ├── tracker.js           # MediaPipe BlazePose tracker, 18-point cage & EMA smoothing
+    │   ├── garment_renderer.js  # Three.js WebGL scene, lighting, camera & engine switcher
+    │   ├── smpl_model.js        # SMPL Human Mesh Recovery engine, digital twin & planar UVs
+    │   ├── garment_models.js    # Landmark Engine deformable garment factory & occlusion masks
+    │   └── calibrate.js         # Calibration Lab controller & preset storage engine
+    └── samples/                 # Sample garment textures and test subject photographs
+        ├── tshirt.png           # Default crew-neck t-shirt sample
+        ├── hoodie.png           # Default hoodie sample
+        ├── formal_shirt.png     # Default button-down formal shirt sample
+        ├── jacket.png           # Default zip-up jacket sample
+        ├── test_person_male.jpg # Male reference photograph
+        ├── test_person_female.jpg # Female reference photograph
+        └── test_person_turned.jpg # Angled pose reference photograph
+
+================================================================================
+9. INSTALLATION, SETUP, AND EXECUTION GUIDE
+================================================================================
+
+9.1. Prerequisites:
+- Python 3.10 to 3.13 installed.
+- Modern WebGL2-compatible browser (Google Chrome, Microsoft Edge, Firefox).
+- Standard RGB webcam (optional; pre-loaded still reference subjects are included).
+
+9.2. Installation Steps:
+1. Open PowerShell or Command Prompt in the project folder:
+   cd "p:\college\SEM 5\ARVR\CP\WearItNow"
+
+2. Install Python dependencies:
+   pip install -r requirements.txt
+
+3. Start the WearItNow server:
+   python run.py
+
+4. Open your browser and navigate to:
+   http://localhost:8000/index.html
+
+9.3. Operational Instructions:
+- Trying Sample Garments: Click any sample chip on the right panel (T-Shirt,
+  Hoodie, Shirt, Jacket) to immediately project it on the subject.
+- Uploading Custom Garments: Click the dashed upload box or drag-and-drop any
+  garment image (PNG, JPG, WebP). The AI backend will classify, segment, and
+  project it in under a second.
+- Switching Deformation Engines:
+  * Click `[📐 Landmark Engine]` for segmented multi-part deformation with
+    forearm depth occluders.
+  * Click `[🧬 SMPL Human Mesh]` for unified digital twin surface binding with
+    dynamic planar UV horizontal stripe protection.
+  * Toggle `[☑️ Body Twin]` to inspect the 3D parametric anatomical cage.
+- Switching Camera Sources:
+  * Click `[📷 Live Camera]` for real-time webcam virtual try-on.
+  * Click `[🧍 Still: Male]`, `[👩 Still: Female]`, or `[💻 Still: Desk]` to test
+    against ground-truth photo models.
+- Calibration Lab: Click `[📊 Calibration Lab]` in the top header to enter the
+  real-time fine-tune testing suite.
+
+================================================================================
+END OF TECHNICAL DOCUMENTATION
+================================================================================

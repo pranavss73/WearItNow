@@ -88,29 +88,12 @@ export class SMPLModelFactory {
         collarMesh.renderOrder = 2;
         root.add(collarMesh);
 
-        // 3. Articulated Sleeve Canopies (Vertically Half-Sliced Cylinders)
-        const leftSleeveGeo = this._initSleeveCanopyGeometry(true);
-        const leftSleeveMesh = new THREE.Mesh(leftSleeveGeo, garmentMat);
-        leftSleeveMesh.name = "smpl_left_sleeve";
-        leftSleeveMesh.castShadow = true;
-        leftSleeveMesh.renderOrder = 2;
-        root.add(leftSleeveMesh);
-
-        const rightSleeveGeo = this._initSleeveCanopyGeometry(false);
-        const rightSleeveMesh = new THREE.Mesh(rightSleeveGeo, garmentMat);
-        rightSleeveMesh.name = "smpl_right_sleeve";
-        rightSleeveMesh.castShadow = true;
-        rightSleeveMesh.renderOrder = 2;
-        root.add(rightSleeveMesh);
-
         root.userData = {
             type,
             bodyMesh,
             wireframeMesh,
             garmentMesh,
             collarMesh,
-            leftSleeveMesh,
-            rightSleeveMesh,
             showBody: true,
 
             /**
@@ -122,8 +105,6 @@ export class SMPLModelFactory {
                     bodyMesh.geometry,
                     garmentMesh.geometry,
                     collarMesh.geometry,
-                    leftSleeveMesh.geometry,
-                    rightSleeveMesh.geometry,
                     poseData,
                     camera,
                     tweaks
@@ -256,73 +237,9 @@ export class SMPLModelFactory {
     }
 
     /**
-     * Initializes the static topology for an Arched Half-Cylinder Sleeve Canopy
-     * (Vertically half-sliced cylinder wrapping over front and lateral upper arm)
-     * @param {boolean} isLeft 
-     */
-    static _initSleeveCanopyGeometry(isLeft) {
-        const N_len = 16;  // Along upper arm length
-        const N_circ = 16; // Around the curved half-cylinder arch
-        const numVerts = (N_len + 1) * (N_circ + 1);
-        const positions = new Float32Array(numVerts * 3);
-        const uvs = new Float32Array(numVerts * 2);
-        const colors = new Float32Array(numVerts * 3);
-        colors.fill(1.0);
-        const indices = [];
-
-        for (let j = 0; j <= N_len; j++) {
-            const t = j / N_len; // 0 (shoulder rim) to 1.0 (bicep cuff)
-            const vTex = (1.0 - t) * 0.82 + t * 0.54;
-
-            for (let i = 0; i <= N_circ; i++) {
-                const alpha = i / N_circ; // 0 (inner armpit) to 1.0 (outer flank)
-                const idx = j * (N_circ + 1) + i;
-
-                let uTex;
-                if (isLeft) {
-                    // Left sleeve panel on garment texture: [0.72, 0.94]
-                    uTex = 0.72 + alpha * 0.22;
-                } else {
-                    // Right sleeve panel on garment texture: [0.06, 0.28]
-                    uTex = 0.28 - alpha * 0.22;
-                }
-
-                uvs[idx * 2] = uTex;
-                uvs[idx * 2 + 1] = vTex;
-            }
-        }
-
-        for (let j = 0; j < N_len; j++) {
-            for (let i = 0; i < N_circ; i++) {
-                const a = j * (N_circ + 1) + i;
-                const b = j * (N_circ + 1) + (i + 1);
-                const c = (j + 1) * (N_circ + 1) + (i + 1);
-                const d = (j + 1) * (N_circ + 1) + i;
-
-                if (isLeft) {
-                    // Counter-clockwise front-facing winding for left arm
-                    indices.push(a, d, b);
-                    indices.push(b, d, c);
-                } else {
-                    // Mirrored winding on right arm to keep front normal pointing towards camera (+Z)
-                    indices.push(a, b, d);
-                    indices.push(b, c, d);
-                }
-            }
-        }
-
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        geo.setIndex(indices);
-        return geo;
-    }
-
-    /**
      * Real-time SMPL Kinematic Solver and Surface-Bound Garment Deformation
      */
-    static _solveAndDeform(bodyGeo, garmentGeo, collarGeo, leftSleeveGeo, rightSleeveGeo, poseData, camera, tweaks = {}) {
+    static _solveAndDeform(bodyGeo, garmentGeo, collarGeo, poseData, camera, tweaks = {}) {
         const dist = camera.position.z;
         const fovRad = (camera.fov * Math.PI) / 180;
         const visibleHeight = 2.0 * Math.tan(fovRad / 2) * dist;
@@ -364,8 +281,7 @@ export class SMPLModelFactory {
         let n_chest = v_up.clone().cross(u_shoulder).normalize();
         if (n_chest.z < 0) n_chest.negate();
         if (n_chest.lengthSq() < 0.5) n_chest = new THREE.Vector3(0, 0, 1);
-        let u_lat = v_up.clone().cross(n_chest).normalize();
-        if (u_lat.dot(u_shoulder) < 0) u_lat.negate();
+        const u_lat = n_chest.clone().cross(v_up).normalize();
 
         // Arm vectors
         const V_arm_L = C_leftElbow.clone().sub(C_ls);
@@ -459,13 +375,13 @@ export class SMPLModelFactory {
             .addScaledVector(v_up, sw * 0.005) // Lifted collar hollow
             .addScaledVector(n_chest, sw * 0.032);
 
-        // Shoulder points: extended over deltoid cap with natural t-shirt shoulder seam width
+        // Shoulder points: lifted and slightly wider for relaxed t-shirt shoulder seam
         const P_shoulder_L = C_ls.clone()
             .add(liftUp)
-            .addScaledVector(u_lat, sw * 0.080);
+            .addScaledVector(dir_arm_L, sw * 0.025);
         const P_shoulder_R = C_rs.clone()
             .add(liftUp)
-            .addScaledVector(u_lat, -sw * 0.080);
+            .addScaledVector(dir_arm_R, sw * 0.025);
 
         // Sleeve endpoints (extended slightly further down the upper arm for natural t-shirt coverage)
         const sleeveFrac = 0.52; // was 0.44
@@ -480,12 +396,18 @@ export class SMPLModelFactory {
                 const blend = 1.0 - Math.cos(tau * (Math.PI / 2.0));
                 const trap = (s >= 0) ? P_trap_L : P_trap_R;
                 return P_collarDip.clone().lerp(trap, blend);
-            } else {
+            } else if (absS <= 0.78) {
                 // Shoulder line across trapezius to shoulder tip
-                const lambda = (absS - 0.34) / (1.0 - 0.34);
+                const lambda = (absS - 0.34) / (0.78 - 0.34);
                 const trap = (s >= 0) ? P_trap_L : P_trap_R;
                 const sh = (s >= 0) ? P_shoulder_L : P_shoulder_R;
                 return trap.clone().lerp(sh, lambda);
+            } else {
+                // Integrated sleeve cap extending down the arm (Top of sleeve)
+                const lambda = (absS - 0.78) / (1.0 - 0.78);
+                const sh = (s >= 0) ? P_shoulder_L : P_shoulder_R;
+                const slEnd = (s >= 0) ? P_sleeveEnd_L : P_sleeveEnd_R;
+                return sh.clone().lerp(slEnd, lambda);
             }
         };
 
@@ -519,9 +441,9 @@ export class SMPLModelFactory {
                 R = to3D(cage.rightWaist).lerp(C_rightArmpit, t);
             } else {
                 const t = (v - 0.70) / 0.30;
-                L = C_leftArmpit.clone().lerp(P_shoulder_L, t);
+                L = C_leftArmpit.clone().lerp(P_sleeveEnd_L, t);
                 C = C_chestLevel.clone().lerp(P_collarDip, t);
-                R = C_rightArmpit.clone().lerp(P_shoulder_R, t);
+                R = C_rightArmpit.clone().lerp(P_sleeveEnd_R, t);
             }
 
             // Tailored t-shirt drape: gentle waist expansion avoiding excess bagginess
@@ -599,14 +521,37 @@ export class SMPLModelFactory {
 
                 // Dynamic Planar Texture Coordinates:
                 // Guarantees horizontal stripes remain strictly perpendicular to the spine
+                const t_sleeve = (v > 0.70) ? ((v - 0.70) / 0.30) : 0.0;
+                const s_armhole = 1.0 - 0.25 * t_sleeve; // 1.0 at torso, smoothly narrows to 0.75 at shoulder seam
+                
                 const vertexH = p.clone().sub(P_hemCenter).dot(v_up);
                 const relH = Math.max(0.0, Math.min(1.05, vertexH / totalTorsoH));
                 const vTorso = 0.11 + relH * (0.86 - 0.11);
-                const uTorso = 0.50 + s * 0.28; // Clean torso mapping across [0.22, 0.78]
+
+                let uTex, vTex;
+                if (Math.abs(s) <= s_armhole) {
+                    // Torso region (front chest & abdomen):
+                    // Maps cleanly across the central garment body [0.27, 0.73]
+                    const sNorm = s / s_armhole; // -1 to +1
+                    uTex = 0.50 + sNorm * 0.23;
+                    vTex = vTorso;
+                } else {
+                    // Sleeve region:
+                    // Seamlessly joins the armhole boundary and maps to the sleeve pattern
+                    const lambda = (Math.abs(s) - s_armhole) / (1.0 - s_armhole);
+                    if (s > 0) {
+                        uTex = 0.73 + lambda * 0.20;
+                    } else {
+                        uTex = 0.27 - lambda * 0.20;
+                    }
+
+                    const vCuff = 0.56 + t_sleeve * (0.80 - 0.56);
+                    vTex = (1.0 - lambda) * vTorso + lambda * vCuff;
+                }
 
                 const uvIdx = j * (Nx + 1) + i;
-                garmentUvs[uvIdx * 2] = uTorso;
-                garmentUvs[uvIdx * 2 + 1] = vTorso;
+                garmentUvs[uvIdx * 2] = uTex;
+                garmentUvs[uvIdx * 2 + 1] = vTex;
             }
         }
 
@@ -659,176 +604,5 @@ export class SMPLModelFactory {
         collarGeo.attributes.position.needsUpdate = true;
         if (collarColors) collarGeo.attributes.color.needsUpdate = true;
         collarGeo.computeVertexNormals();
-
-        // 5. DEFORM SLEEVE CANOPIES (VERTICALLY HALF-SLICED CYLINDERS)
-        if (leftSleeveGeo) {
-            SMPLModelFactory._deformSleeveCanopy(
-                leftSleeveGeo, true, P_shoulder_L, C_leftArmpit, C_leftElbow,
-                v_up, u_lat, n_chest, sw, P_hemCenter, totalTorsoH
-            );
-        }
-        if (rightSleeveGeo) {
-            SMPLModelFactory._deformSleeveCanopy(
-                rightSleeveGeo, false, P_shoulder_R, C_rightArmpit, C_rightElbow,
-                v_up, u_lat, n_chest, sw, P_hemCenter, totalTorsoH
-            );
-        }
-    }
-
-    /**
-     * Deforms an Arched Half-Cylinder Sleeve Canopy wrapping over front and lateral upper arm
-     * (Eliminates hollow cylinder pipe look while naturally covering real undershirt sleeves)
-     */
-    static _deformSleeveCanopy(sleeveGeo, isLeft, P_shoulder, C_armpit, C_elbow, v_up, u_lat, n_chest, sw, P_hemCenter, totalTorsoH) {
-        const pos = sleeveGeo.attributes.position.array;
-        const uvs = sleeveGeo.attributes.uv.array;
-        const colors = sleeveGeo.attributes.color?.array;
-        const N_len = 16;
-        const N_circ = 16;
-        let sIdx = 0;
-
-        // Arm bone vector (shoulder to elbow)
-        const V_arm = C_elbow.clone().sub(P_shoulder);
-        const armLen = V_arm.length();
-
-        // Outward lateral direction from body:
-        // Left arm is on person's left (+u_lat), Right arm is on person's right (-u_lat)
-        const outwardLat = isLeft ? u_lat.clone() : u_lat.clone().negate();
-
-        let dir_arm;
-        if (armLen > 0.05) {
-            dir_arm = V_arm.clone().divideScalar(armLen);
-        } else {
-            // Natural resting arm angle down and outward
-            dir_arm = v_up.clone().multiplyScalar(-0.90).addScaledVector(outwardLat, 0.35).normalize();
-        }
-
-        // Lateral vector perpendicular to dir_arm, pointing strictly away from torso along the arm
-        let u_lat_arm = outwardLat.clone().addScaledVector(dir_arm, -outwardLat.dot(dir_arm));
-        if (u_lat_arm.lengthSq() > 0.01) {
-            u_lat_arm.normalize();
-        } else {
-            u_lat_arm = v_up.clone().cross(dir_arm).normalize();
-        }
-        if (u_lat_arm.dot(outwardLat) < 0) {
-            u_lat_arm.negate();
-        }
-
-        // Forward normal perpendicular to dir_arm and u_lat_arm, pointing towards camera (+Z)
-        let n_arm = n_chest.clone().addScaledVector(dir_arm, -n_chest.dot(dir_arm));
-        if (n_arm.lengthSq() > 0.01) {
-            n_arm.normalize();
-        } else {
-            n_arm = u_lat_arm.clone().cross(dir_arm).normalize();
-        }
-        if (n_arm.dot(n_chest) < 0) n_arm.negate();
-        if (n_arm.z < 0) n_arm.z = Math.abs(n_arm.z);
-
-        // Sleeve length: Covers 52% of upper arm to completely cover real undershirt sleeves
-        const effectiveArmLen = (armLen > 0.05) ? armLen : sw * 0.70;
-        const sleeveLength = Math.max(sw * 0.34, Math.min(sw * 0.48, effectiveArmLen * 0.52));
-
-        // Centerline root between shoulder tip and armpit fold
-        const P_armRoot = P_shoulder.clone().lerp(C_armpit, 0.35);
-        const C_sleeveCuff = P_armRoot.clone().addScaledVector(dir_arm, sleeveLength);
-
-        // Radii for natural relaxed t-shirt drape:
-        // Shoulder cap is roomier, cuff is tailored
-        const r_lat_top = sw * 0.160;
-        const r_depth_top = sw * 0.145;
-        const r_lat_cuff = sw * 0.138;
-        const r_depth_cuff = sw * 0.120;
-
-        for (let j = 0; j <= N_len; j++) {
-            const t = j / N_len; // 0.0 (shoulder seam) to 1.0 (cuff hem)
-
-            const r_lat = r_lat_top * (1.0 - t) + r_lat_cuff * t;
-            const r_depth = r_depth_top * (1.0 - t) + r_depth_cuff * t;
-
-            // Seam weld weight at shoulder armhole
-            const seamWeight = Math.max(0, 1.0 - t / 0.35);
-            const w = seamWeight * seamWeight * (3 - 2 * seamWeight);
-
-            // Center along arm length
-            const C_curr = P_armRoot.clone().lerp(C_sleeveCuff, t);
-
-            for (let i = 0; i <= N_circ; i++) {
-                const alpha = i / N_circ; // 0 (inner armpit) to 1.0 (outer deltoid edge)
-                const beta = (alpha - 0.5) * 2.0; // -1.0 (medial) to +1.0 (lateral)
-
-                // Arched half-cylinder canopy:
-                // Angle spans from -97 deg (-0.54*PI) to +97 deg (+0.54*PI)
-                const phi = beta * (Math.PI * 0.54);
-                const disp_lat = Math.sin(phi) * r_lat;
-                const disp_fwd = Math.cos(phi) * r_depth;
-
-                // Position on parametric canopy
-                const p = C_curr.clone()
-                    .addScaledVector(u_lat_arm, disp_lat)
-                    .addScaledVector(n_arm, disp_fwd);
-
-                // Edge tucking at extreme medial and lateral edges to wrap around arm silhouette
-                const edgeTuck = Math.pow(Math.abs(beta), 2.5) * sw * 0.020;
-                p.addScaledVector(n_arm, -edgeTuck);
-
-                // Seam blending at armhole (weld to torso shoulder seam and armpit fold)
-                if (w > 0.001) {
-                    const seamAlpha = (beta + 1.0) * 0.5; // 0 (armpit) to 1 (shoulder)
-                    const P_seamAnchor = C_armpit.clone().lerp(P_shoulder, seamAlpha);
-                    const seamArch = Math.sin(seamAlpha * Math.PI) * sw * 0.040;
-                    const P_seam = P_seamAnchor.addScaledVector(n_chest, seamArch + sw * 0.020);
-                    p.lerp(P_seam, w);
-                }
-
-                // Soft tailored cuff hem: gentle inward fabric curl
-                if (t > 0.75) {
-                    const hemT = (t - 0.75) / 0.25;
-                    const hemCurl = Math.sin(hemT * Math.PI) * sw * 0.012;
-                    p.addScaledVector(n_arm, -hemCurl);
-                }
-
-                pos[sIdx * 3] = p.x;
-                pos[sIdx * 3 + 1] = p.y;
-                pos[sIdx * 3 + 2] = p.z;
-
-                // Dynamic Spine-Aligned UV Mapping:
-                // Guarantees horizontal stripes on sleeves line up with the torso stripes!
-                const vertexH = p.clone().sub(P_hemCenter).dot(v_up);
-                const relH = Math.max(0.0, Math.min(1.05, vertexH / totalTorsoH));
-                const vTex = 0.11 + relH * (0.86 - 0.11);
-
-                let uTex;
-                if (isLeft) {
-                    // Left sleeve in image: [0.78, 0.97]
-                    uTex = 0.78 + t * 0.19 + beta * 0.02;
-                } else {
-                    // Right sleeve in image: [0.03, 0.22]
-                    uTex = 0.22 - t * 0.19 - beta * 0.02;
-                }
-
-                uvs[sIdx * 2] = uTex;
-                uvs[sIdx * 2 + 1] = vTex;
-
-                // 3D Ambient lighting and shading
-                if (colors) {
-                    // Medial underarm shadow (armpit ambient occlusion)
-                    const underarmShade = (beta < 0) ? (1.0 - 0.30 * Math.abs(beta)) : (1.0 - 0.15 * beta);
-                    // Hem shadow
-                    const hemShade = (t > 0.85) ? (0.92 + 0.08 * (1.0 - (t - 0.85) / 0.15)) : 1.0;
-                    const shade = Math.max(0.66, underarmShade * hemShade);
-
-                    colors[sIdx * 3] = shade;
-                    colors[sIdx * 3 + 1] = shade;
-                    colors[sIdx * 3 + 2] = shade;
-                }
-
-                sIdx++;
-            }
-        }
-
-        sleeveGeo.attributes.position.needsUpdate = true;
-        sleeveGeo.attributes.uv.needsUpdate = true;
-        if (colors) sleeveGeo.attributes.color.needsUpdate = true;
-        sleeveGeo.computeVertexNormals();
     }
 }
